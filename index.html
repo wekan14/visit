@@ -36,9 +36,9 @@
 <body class="bg-gray-100 flex items-center justify-center min-h-screen p-4 sm:p-6">
     <div id="app" class="w-full max-w-4xl bg-white rounded-2xl shadow-xl p-6 sm:p-8">
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6">
-            <h1 class="text-3xl sm:text-4xl font-extrabold text-gray-800">貴賓登記</h1>
+            <h1 class="text-3xl sm:text-4xl font-extrabold text-gray-800">貴賓登記系統</h1>
             <div id="user-info" class="text-sm text-gray-600 mt-2 sm:mt-0">
-                <span class="font-medium">您的 ID：</span><span id="user-id" class="break-all">載入中...</span>
+                <span class="font-medium">這是一個共享的公開列表，所有人都可以編輯。</span>
             </div>
         </div>
 
@@ -133,10 +133,10 @@
 
     <script type="module">
         // Import necessary Firebase SDKs from CDN
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, onSnapshot, serverTimestamp, query, doc, deleteDoc, getDocs, writeBatch, updateDoc } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
-        import { setLogLevel } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-app.js";
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/12.3.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.3.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, serverTimestamp, query, doc, deleteDoc, getDocs, writeBatch, updateDoc } from "https://www.gstatic.com/firebasejs/12.3.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/12.3.1/firebase-app.js";
         
         // Enable Firebase debug logging
         setLogLevel('debug');
@@ -145,10 +145,8 @@
         // Global variables provided by the Canvas environment
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
         const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-
+        
         let app, auth, db;
-        const userIdElement = document.getElementById('user-id');
         const loadingElement = document.getElementById('loading');
         const guestListContainer = document.getElementById('guest-list-container');
         const guestListElement = document.getElementById('guest-list');
@@ -157,6 +155,7 @@
         const resetBtn = document.getElementById('reset-btn');
 
         let guestsData = []; // To store the current list of guests for download
+        let isAuthReady = false; // Flag to ensure Firestore operations happen after auth is ready
 
         // --- Firebase Initialization and Authentication ---
         async function authenticateAndInitialize() {
@@ -169,41 +168,35 @@
                 auth = getAuth(app);
                 db = getFirestore(app);
                 
-                // Use onAuthStateChanged for a more robust sign-in flow
-                onAuthStateChanged(auth, async (user) => {
+                // Use onAuthStateChanged to ensure we only proceed once auth is ready
+                onAuthStateChanged(auth, (user) => {
                     if (user) {
-                        // User is signed in, proceed with app logic
-                        const userId = user.uid;
-                        userIdElement.textContent = userId;
+                        isAuthReady = true;
+                        console.log("Authentication successful, user UID:", user.uid);
+                        // Setup the listener only after successful authentication
                         setupRealtimeListener();
                     } else {
-                        // User is signed out, try to sign in with custom token or anonymously
-                        console.log("No user signed in. Attempting sign-in...");
-                        try {
-                            if (initialAuthToken) {
-                                await signInWithCustomToken(auth, initialAuthToken);
-                            } else {
-                                await signInAnonymously(auth);
-                            }
-                        } catch (error) {
-                            console.error("Authentication failed:", error);
-                            userIdElement.textContent = '認證失敗';
-                            showModal('錯誤', '認證或資料庫連線失敗，請稍後重試。');
-                            // Hide loading spinner and form if authentication fails
+                        // If not signed in, try to sign in anonymously
+                        console.log("No user signed in. Attempting anonymous sign-in...");
+                        signInAnonymously(auth).catch((error) => {
+                            console.error("Anonymous sign-in failed:", error);
+                            showModal('錯誤', '無法匿名登入，請檢查控制台。');
                             loadingElement.classList.add('hidden');
                             addGuestForm.classList.add('hidden');
-                        }
+                        });
                     }
                 });
             } catch (error) {
                 console.error("Firebase initialization failed:", error);
-                userIdElement.textContent = '初始化失敗';
                 showModal('錯誤', '應用程式初始化失敗，請檢查控制台。');
+                loadingElement.classList.add('hidden');
+                addGuestForm.classList.add('hidden');
             }
         }
 
         // --- Realtime Data Listener and UI Update ---
         function setupRealtimeListener() {
+            // Data is stored in a public collection accessible to all
             const guestsCollectionPath = `/artifacts/${appId}/public/data/guests`;
             const q = query(collection(db, guestsCollectionPath));
 
@@ -288,6 +281,11 @@
         // --- Form Submission and Data Handling ---
         addGuestForm.addEventListener('submit', async (e) => {
             e.preventDefault();
+            if (!isAuthReady) {
+                console.error("Authentication not ready. Cannot add guest.");
+                showModal('錯誤', '認證未就緒，請稍候再試。');
+                return;
+            }
             const name = document.getElementById('guest-name').value;
             const title = document.getElementById('guest-title').value;
             const company = document.getElementById('guest-company').value;
@@ -311,6 +309,11 @@
         });
         
         async function handleDeleteGuest(guestId) {
+            if (!isAuthReady) {
+                console.error("Authentication not ready. Cannot delete guest.");
+                showModal('錯誤', '認證未就緒，請稍候再試。');
+                return;
+            }
             try {
                 const docRef = doc(db, `/artifacts/${appId}/public/data/guests`, guestId);
                 await deleteDoc(docRef);
@@ -322,6 +325,11 @@
         }
         
         async function handleUpdateStatus(guestId, status) {
+            if (!isAuthReady) {
+                console.error("Authentication not ready. Cannot update status.");
+                showModal('錯誤', '認證未就緒，請稍候再試。');
+                return;
+            }
             try {
                 const docRef = doc(db, `/artifacts/${appId}/public/data/guests`, guestId);
                 await updateDoc(docRef, {
@@ -338,6 +346,11 @@
         resetBtn.addEventListener('click', () => {
             showConfirmModal('確認重置', '確定要永久刪除所有貴賓資料嗎？此操作無法復原。', async () => {
                 showModal('重置中...', '正在清空貴賓清單，請稍候...');
+                if (!isAuthReady) {
+                    console.error("Authentication not ready. Cannot reset list.");
+                    showModal('錯誤', '認證未就緒，請稍候再試。');
+                    return;
+                }
                 try {
                     const guestsRef = collection(db, `/artifacts/${appId}/public/data/guests`);
                     const q = query(guestsRef);
