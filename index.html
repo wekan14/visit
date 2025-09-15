@@ -78,10 +78,19 @@
         </div>
     </div>
 
-    <!-- JavaScript 腳本 -->
-    <script>
-        const STORAGE_KEY = 'guest_list_visitors';
-        let visitorsData = [];
+    <!-- Firebase 腳本 -->
+    <script type="module">
+        import { initializeApp, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, onSnapshot, query, serverTimestamp, getDocs, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        // 這三個變數是由 Canvas 環境自動提供的，您不需要自己設定或修改。
+        // 它們確保應用程式能夠連線到一個預先配置好的雲端資料庫。
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        
+        let app, db, auth, visitorsData = [];
         const visitorForm = document.getElementById('visitor-form');
         const visitorList = document.getElementById('visitor-list');
         const loadingMessage = document.getElementById('loading-message');
@@ -109,14 +118,14 @@
 
         /**
          * 轉換時間戳為本地時間字串
-         * @param {number} timestamp - 時間戳（毫秒）
+         * @param {object} timestamp - Firestore Timestamp 物件
          * @returns {string} 格式化的時間字串
          */
         function formatTimestamp(timestamp) {
-            if (!timestamp) {
+            if (!timestamp || !timestamp.toDate) {
                 return 'N/A';
             }
-            const date = new Date(timestamp);
+            const date = timestamp.toDate();
             const year = date.getFullYear();
             const month = (date.getMonth() + 1).toString().padStart(2, '0');
             const day = date.getDate().toString().padStart(2, '0');
@@ -141,7 +150,11 @@
                 if (a.visited !== b.visited) {
                     return a.visited ? 1 : -1;
                 }
-                return b.timestamp - a.timestamp;
+                if (a.timestamp && b.timestamp) {
+                    // 將 Firestore Timestamp 物件轉換為時間，以便排序
+                    return b.timestamp.toDate().getTime() - a.timestamp.toDate().getTime();
+                }
+                return 0;
             });
 
             sortedVisitors.forEach(visitor => {
@@ -159,7 +172,7 @@
 
                 // 狀態按鈕
                 const statusButton = `
-                    <button data-id="${visitor.id}" data-visited="${visitor.visited}" class="toggle-status px-4 py-2 ml-4 rounded-full font-medium text-sm transition-colors duration-200
+                    <button data-doc-id="${visitor.id}" data-visited="${visitor.visited}" class="toggle-status px-4 py-2 ml-4 rounded-full font-medium text-sm transition-colors duration-200
                         ${visitor.visited ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">
                         ${visitor.visited ? '已介紹' : '尚未介紹'}
                     </button>
@@ -171,42 +184,18 @@
 
             // 重新綁定事件監聽器
             document.querySelectorAll('.toggle-status').forEach(button => {
-                button.addEventListener('click', (e) => {
-                    const id = e.target.dataset.id;
+                button.addEventListener('click', async (e) => {
+                    const docId = e.target.dataset.docId;
                     const isVisited = e.target.dataset.visited === 'true';
-                    const visitor = visitorsData.find(v => v.id === id);
-                    if (visitor) {
-                        visitor.visited = !isVisited;
-                        saveVisitorsToLocalStorage();
-                        renderVisitors(visitorsData);
+                    const docRef = doc(db, `artifacts/${appId}/public/data/visitors`, docId);
+                    try {
+                        await setDoc(docRef, { visited: !isVisited }, { merge: true });
+                    } catch (error) {
+                        console.error("Error updating status: ", error);
+                        showAlert("更新狀態時發生錯誤。");
                     }
                 });
             });
-        }
-
-        /**
-         * 從 localStorage 載入貴賓名單
-         */
-        function loadVisitorsFromLocalStorage() {
-            try {
-                const storedData = localStorage.getItem(STORAGE_KEY);
-                if (storedData) {
-                    visitorsData = JSON.parse(storedData);
-                }
-            } catch (error) {
-                console.error("載入資料時發生錯誤: ", error);
-                showAlert("載入貴賓名單時發生錯誤。");
-            } finally {
-                loadingMessage.style.display = 'none';
-                renderVisitors(visitorsData);
-            }
-        }
-
-        /**
-         * 將貴賓名單儲存到 localStorage
-         */
-        function saveVisitorsToLocalStorage() {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(visitorsData));
         }
 
         /**
@@ -244,7 +233,7 @@
         /**
          * 重設貴賓名單 (刪除所有資料)
          */
-        function resetGuestList() {
+        async function resetGuestList() {
             if (visitorsData.length === 0) {
                 showAlert("目前沒有貴賓資料可以重設。");
                 return;
@@ -291,18 +280,89 @@
                 });
             };
 
-            showCustomConfirm().then(confirmed => {
-                if (confirmed) {
-                    visitorsData = [];
-                    saveVisitorsToLocalStorage();
-                    renderVisitors(visitorsData);
-                    showAlert("貴賓名單已成功重設。");
+            if (!(await showCustomConfirm())) {
+                return;
+            }
+
+            const visitorsCollection = collection(db, `artifacts/${appId}/public/data/visitors`);
+            const snapshot = await getDocs(visitorsCollection);
+            const batch = writeBatch(db);
+
+            snapshot.forEach((doc) => {
+                batch.delete(doc.ref);
+            });
+
+            try {
+                await batch.commit();
+                showAlert("貴賓名單已成功重設。");
+            } catch (error) {
+                console.error("重設名單時發生錯誤: ", error);
+                showAlert("重設名單時發生錯誤。");
+            }
+        }
+
+        // Firebase 初始化及認證
+        async function initializeFirebase() {
+            // 啟用 Firebase 除錯日誌，若有問題可在 Console 中查看詳細資訊
+            setLogLevel('Debug');
+            loadingMessage.textContent = '連線中...';
+            
+            try {
+                // 如果沒有 Firebase 設定，則使用一個無效的預設值來避免錯誤
+                const finalFirebaseConfig = Object.keys(firebaseConfig).length === 0 
+                    ? {
+                        apiKey: "mock_api_key",
+                        authDomain: "mock_auth_domain",
+                        projectId: "mock_project_id",
+                        storageBucket: "mock_storage_bucket",
+                        messagingSenderId: "mock_messaging_sender_id",
+                        appId: "mock_app_id"
+                    } 
+                    : firebaseConfig;
+
+                app = initializeApp(finalFirebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
                 }
+
+                console.log("Firebase authenticated successfully. User ID: ", auth.currentUser.uid);
+                loadingMessage.textContent = '載入貴賓資料...';
+                startListeningForVisitors();
+
+            } catch (error) {
+                console.error("Firebase initialization failed:", error);
+                loadingMessage.textContent = `初始化失敗：${error.message}`;
+                showAlert(`初始化失敗：${error.message}`);
+            }
+        }
+        
+        /**
+         * 監聽 Firestore 貴賓資料的變動
+         */
+        function startListeningForVisitors() {
+            const visitorsCollection = collection(db, `artifacts/${appId}/public/data/visitors`);
+            const q = query(visitorsCollection);
+            
+            // onSnapshot 會即時監聽資料庫的變動，並在有任何更新時自動重新渲染列表
+            onSnapshot(q, (snapshot) => {
+                visitorsData = [];
+                snapshot.forEach((doc) => {
+                    visitorsData.push({ id: doc.id, ...doc.data() });
+                });
+                renderVisitors(visitorsData);
+            }, (error) => {
+                console.error("Error listening to visitors data:", error);
+                visitorList.innerHTML = `<p class="text-red-500 text-center">資料載入錯誤。</p>`;
             });
         }
 
         // 處理表單提交
-        visitorForm.addEventListener('submit', (e) => {
+        visitorForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const unit = document.getElementById('unit').value.trim();
             const title = document.getElementById('title').value.trim();
@@ -313,20 +373,21 @@
                 return;
             }
 
-            const newVisitor = {
-                id: Date.now().toString(), // 簡單的唯一 ID
-                unit: unit,
-                title: title,
-                name: name,
-                timestamp: Date.now(),
-                visited: false
-            };
-            
-            visitorsData.push(newVisitor);
-            saveVisitorsToLocalStorage();
-            renderVisitors(visitorsData);
-            
-            visitorForm.reset();
+            try {
+                const visitorsCollection = collection(db, `artifacts/${appId}/public/data/visitors`);
+                await setDoc(doc(visitorsCollection), {
+                    unit: unit,
+                    title: title,
+                    name: name,
+                    timestamp: serverTimestamp(),
+                    visited: false
+                });
+                
+                visitorForm.reset();
+            } catch (error) {
+                console.error("Error adding document: ", error);
+                showAlert("提交時發生錯誤。");
+            }
         });
 
         // 為新按鈕添加事件監聽器
@@ -334,7 +395,8 @@
         resetButton.addEventListener('click', resetGuestList);
 
         // 啟動應用程式
-        window.onload = loadVisitorsFromLocalStorage;
+        initializeFirebase();
+
     </script>
 </body>
 </html>
