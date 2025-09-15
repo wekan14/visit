@@ -96,16 +96,24 @@
 
     <!-- Firebase 腳本 -->
     <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, doc, setDoc, onSnapshot, query, serverTimestamp, getDocs, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-app.js";
+        import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-analytics.js";
+        import { getFirestore, collection, doc, setDoc, onSnapshot, query, serverTimestamp, getDocs, writeBatch } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
+
+        // Firebase configuration from the user
+        const firebaseConfig = {
+            apiKey: "AIzaSyDUzC3l_uleVT_wHedmPyqqVUSlvhOmTqQ",
+            authDomain: "visit-9b675.firebaseapp.com",
+            projectId: "visit-9b675",
+            storageBucket: "visit-9b675.firebasestorage.app",
+            messagingSenderId: "391397238388",
+            appId: "1:391397238388:web:268b5ad0e6bbe3af2e5321",
+            measurementId: "G-FQ8G02N23V"
+        };
         
-        // These variables are automatically provided by the Canvas environment.
-        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        const appId = firebaseConfig.appId;
         
-        let app, db, auth, visitorsData = [];
+        let app, db, visitorsData = [];
         const visitorForm = document.getElementById('visitor-form');
         const visitorList = document.getElementById('visitor-list');
         const loadingMessage = document.getElementById('loading-message');
@@ -117,7 +125,7 @@
         const resetButton = document.getElementById('reset-list');
         let isOnlineMode = false;
         let currentCustomId = null;
-        let unsubscribe = null; // 用於儲存 Firestore 監聽器的退訂函式
+        let unsubscribe = null; // Used to store the Firestore listener unsubscribe function
 
         // Custom alert and confirm popups to replace browser native ones
         function showAlert(message) {
@@ -389,18 +397,14 @@
                 }
 
                 app = initializeApp(firebaseConfig);
-                auth = getAuth(app);
                 db = getFirestore(app);
-
-                if (initialAuthToken) {
-                    await signInWithCustomToken(auth, initialAuthToken);
-                } else {
-                    await signInAnonymously(auth);
-                }
                 
                 isOnlineMode = true;
                 setStatus("✅ 成功連線到共通資料庫，名單將會即時同步！", false);
                 loadingMessage.textContent = '請輸入資料庫 ID 以載入名單...';
+                
+                // Analytics is not essential for the app's functionality, but we can initialize it since the user provided it.
+                getAnalytics(app);
 
             } catch (error) {
                 isOnlineMode = false;
