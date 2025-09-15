@@ -12,8 +12,7 @@
         body {
             font-family: 'Inter', sans-serif;
             background-color: #f3f4f6;
-        }
-    </style>
+        </style>
 </head>
 <body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
 
@@ -357,14 +356,14 @@
                 }
                 console.log("Firebase authenticated successfully. User ID: ", auth.currentUser.uid);
                 isOnlineMode = true;
-                setStatus("成功連線到共通資料庫，名單將會即時同步！");
+                setStatus("✅ 成功連線到共通資料庫，名單將會即時同步！");
                 displayAppId.textContent = appId;
                 
             } catch (error) {
                 console.error("Firebase initialization failed:", error);
                 loadingMessage.textContent = `連線失敗，自動切換至單機模式...`;
                 isOnlineMode = false;
-                setStatus("❗ 連線失敗，目前為單機模式，名單不會同步。", true);
+                setStatus(`❗ 連線失敗：${error.message}`, true);
                 displayAppId.textContent = appId;
             }
             // Initial data load after Firebase is ready (or fails)
