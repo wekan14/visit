@@ -103,7 +103,7 @@
     <!-- Firebase SDKs -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, addDoc, onSnapshot, query, deleteDoc, doc, writeBatch, getDocs, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
         // 設定 Firestore 偵錯模式
@@ -183,6 +183,7 @@
         window.onload = async () => {
             if (!Object.keys(firebaseConfig).length) {
                 console.error("Firebase 配置資訊缺失。");
+                showCustomModal("應用程式初始化失敗。請檢查設定。");
                 return;
             }
 
@@ -199,120 +200,125 @@
                     await signInAnonymously(auth);
                 }
                 
-                console.log('Firebase 認證成功，可以安全地存取資料庫了。');
+                // 在認證完成後，才設定事件監聽器
+                setupEventListeners();
 
-                // 在認證成功後，直接設定 Firestore 監聽器
-                const guestsCollection = collection(db, `artifacts/${appId}/public/data/guests`);
-                const q = query(guestsCollection);
-                onSnapshot(q, (snapshot) => {
-                    const guests = [];
-                    snapshot.forEach((doc) => {
-                        guests.push(doc.data());
-                    });
-                    
-                    // 渲染列表
-                    visitorList.innerHTML = '';
-                    if (guests.length === 0) {
-                        emptyListMessage.textContent = '目前還沒有貴賓登記。';
-                        visitorList.appendChild(emptyListMessage);
-                    } else {
-                        guests.forEach(guest => {
-                            visitorList.appendChild(createVisitorItem(guest));
-                        });
-                    }
-                });
             } catch (e) {
                 console.error("應用程式初始化或資料庫連線失敗：", e);
                 showCustomModal("應用程式初始化失敗。請檢查設定或稍後再試。");
             }
         };
 
-        // 提交表單
-        form.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const unit = form.unit.value;
-            const title = form.title.value;
-            const name = form.name.value;
-
-            try {
-                await addDoc(collection(db, `artifacts/${appId}/public/data/guests`), {
-                    unit,
-                    title,
-                    name,
-                    timestamp: new Date()
-                });
-                showToast("登記成功！");
-                form.reset();
-            } catch (e) {
-                console.error("寫入文件時發生錯誤：", e);
-                showCustomModal("登記失敗。請稍後再試。");
-            }
-        });
-
-        // 下載名冊為 CSV
-        downloadButton.addEventListener('click', async () => {
-            try {
-                const guestsRef = collection(db, `artifacts/${appId}/public/data/guests`);
-                const snapshot = await getDocs(guestsRef);
+        // 設置所有事件監聽器和資料庫監聽器
+        function setupEventListeners() {
+            // Firestore 監聽器
+            const guestsCollection = collection(db, `artifacts/${appId}/public/data/guests`);
+            const q = query(guestsCollection);
+            onSnapshot(q, (snapshot) => {
                 const guests = [];
-                snapshot.forEach(doc => {
-                    const data = doc.data();
-                    guests.push({
-                        '單位': data.unit,
-                        '職稱': data.title,
-                        '姓名': data.name,
-                        '登記時間': data.timestamp ? data.timestamp.toDate().toLocaleString() : 'N/A'
-                    });
+                snapshot.forEach((doc) => {
+                    guests.push(doc.data());
                 });
-
+                
+                // 渲染列表
+                visitorList.innerHTML = '';
                 if (guests.length === 0) {
-                    showCustomModal("名單是空的，無法下載。");
-                    return;
-                }
-
-                const headers = Object.keys(guests[0]).join(',');
-                const rows = guests.map(g => Object.values(g).join(','));
-                const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + [headers, ...rows].join('\n');
-                const encodedUri = encodeURI(csvContent);
-                const link = document.createElement('a');
-                link.setAttribute('href', encodedUri);
-                link.setAttribute('download', 'guest_list.csv');
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                showToast("名單已下載！");
-            } catch (e) {
-                console.error("下載時發生錯誤：", e);
-                showCustomModal("下載名單失敗。");
-            }
-        });
-
-        // 重設名單
-        resetButton.addEventListener('click', async () => {
-            showCustomModal("確定要永久刪除所有貴賓登記嗎？此操作不可逆轉！", 'confirm', async (isConfirmed) => {
-                if (isConfirmed) {
-                    try {
-                        const guestsRef = collection(db, `artifacts/${appId}/public/data/guests`);
-                        const snapshot = await getDocs(guestsRef);
-                        
-                        if (snapshot.size === 0) {
-                            showCustomModal("名單已是空的。");
-                            return;
-                        }
-
-                        const batch = writeBatch(db);
-                        snapshot.forEach((doc) => {
-                            batch.delete(doc.ref);
-                        });
-                        await batch.commit();
-                        showToast("名單已成功重設！");
-                    } catch (e) {
-                        console.error("重設名單時發生錯誤：", e);
-                        showCustomModal("重設名單失敗。請稍後再試。");
-                    }
+                    emptyListMessage.textContent = '目前還沒有貴賓登記。';
+                    visitorList.appendChild(emptyListMessage);
+                } else {
+                    guests.forEach(guest => {
+                        visitorList.appendChild(createVisitorItem(guest));
+                    });
                 }
             });
-        });
+
+            // 提交表單
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const unit = form.unit.value;
+                const title = form.title.value;
+                const name = form.name.value;
+
+                try {
+                    await addDoc(collection(db, `artifacts/${appId}/public/data/guests`), {
+                        unit,
+                        title,
+                        name,
+                        timestamp: new Date()
+                    });
+                    showToast("登記成功！");
+                    form.reset();
+                } catch (e) {
+                    console.error("寫入文件時發生錯誤：", e);
+                    showCustomModal("登記失敗。請稍後再試。");
+                }
+            });
+
+            // 下載名冊為 CSV
+            downloadButton.addEventListener('click', async () => {
+                try {
+                    const guestsRef = collection(db, `artifacts/${appId}/public/data/guests`);
+                    const snapshot = await getDocs(guestsRef);
+                    const guests = [];
+                    snapshot.forEach(doc => {
+                        const data = doc.data();
+                        guests.push({
+                            '單位': data.unit,
+                            '職稱': data.title,
+                            '姓名': data.name,
+                            '登記時間': data.timestamp ? data.timestamp.toDate().toLocaleString() : 'N/A'
+                        });
+                    });
+
+                    if (guests.length === 0) {
+                        showCustomModal("名單是空的，無法下載。");
+                        return;
+                    }
+
+                    const headers = Object.keys(guests[0]).join(',');
+                    const rows = guests.map(g => Object.values(g).join(','));
+                    const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + [headers, ...rows].join('\n');
+                    const encodedUri = encodeURI(csvContent);
+                    const link = document.createElement('a');
+                    link.setAttribute('href', encodedUri);
+                    link.setAttribute('download', 'guest_list.csv');
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    showToast("名單已下載！");
+                } catch (e) {
+                    console.error("下載時發生錯誤：", e);
+                    showCustomModal("下載名單失敗。");
+                }
+            });
+
+            // 重設名單
+            resetButton.addEventListener('click', async () => {
+                showCustomModal("確定要永久刪除所有貴賓登記嗎？此操作不可逆轉！", 'confirm', async (isConfirmed) => {
+                    if (isConfirmed) {
+                        try {
+                            const guestsRef = collection(db, `artifacts/${appId}/public/data/guests`);
+                            const snapshot = await getDocs(guestsRef);
+                            
+                            if (snapshot.size === 0) {
+                                showCustomModal("名單已是空的。");
+                                return;
+                            }
+
+                            const batch = writeBatch(db);
+                            snapshot.forEach((doc) => {
+                                batch.delete(doc.ref);
+                            });
+                            await batch.commit();
+                            showToast("名單已成功重設！");
+                        } catch (e) {
+                            console.error("重設名單時發生錯誤：", e);
+                            showCustomModal("重設名單失敗。請稍後再試。");
+                        }
+                    }
+                });
+            });
+        }
     </script>
 </body>
 </html>
