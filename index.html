@@ -83,8 +83,20 @@
 
         // 全域變數，由外部環境提供，請勿修改
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        
+        // 檢查並使用外部提供的 Firebase 設定，如果不存在則使用預設值
+        let firebaseConfig = {};
+        if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+            try {
+                firebaseConfig = JSON.parse(__firebase_config);
+                console.log("Using external Firebase config.");
+            } catch (e) {
+                console.error("Failed to parse external Firebase config. Using a default empty config.", e);
+            }
+        } else {
+            console.log("No external Firebase config found. Using a default empty config. App may not function properly without a valid config.");
+        }
 
         let app, db, auth, visitorsData = [];
         const visitorForm = document.getElementById('visitor-form');
@@ -304,7 +316,8 @@
         // Firebase 初始化及認證
         async function initializeFirebase() {
             loadingMessage.textContent = '連線中...';
-            // 在嘗試連線前，先檢查必要的設定是否存在
+            
+            // 檢查 Firebase 設定是否可用
             if (!firebaseConfig || Object.keys(firebaseConfig).length === 0) {
                 loadingMessage.textContent = '初始化失敗：缺少 Firebase 設定。';
                 console.error("Firebase initialization failed: Missing or empty firebase config.");
@@ -316,7 +329,6 @@
                 auth = getAuth(app);
                 db = getFirestore(app);
 
-                // 根據環境提供的 token 進行認證，以實現共享資料庫
                 if (initialAuthToken) {
                     await signInWithCustomToken(auth, initialAuthToken);
                 } else {
@@ -329,7 +341,7 @@
 
             } catch (error) {
                 console.error("Firebase initialization failed:", error);
-                loadingMessage.textContent = '初始化失敗，請重新整理頁面。';
+                loadingMessage.textContent = '初始化失敗，請檢查網路連線或重新整理頁面。';
                 showAlert("初始化失敗，請檢查網路連線或重新整理頁面。");
             }
         }
