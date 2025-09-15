@@ -329,8 +329,9 @@
             displayCollectionPath.textContent = FIRESTORE_COLLECTION_PATH;
 
             try {
-                if (Object.keys(firebaseConfig).length === 0 || !firebaseConfig.apiKey) {
-                    throw new Error("Invalid Firebase configuration provided by the environment.");
+                // 檢查 Firebase 設定是否有效
+                if (Object.keys(firebaseConfig).length === 0 || !firebaseConfig.apiKey || appId === 'default-app-id') {
+                    throw new Error("無法取得執行環境提供的 Firebase 設定，請確認您正在正確的環境中執行此應用程式。");
                 }
 
                 app = initializeApp(firebaseConfig);
@@ -356,7 +357,7 @@
                 });
 
             } catch (error) {
-                setStatus(`❗ 連線失敗：${error.message}，請檢查你的網路。`, true);
+                setStatus(`❗ 連線失敗：${error.message}`, true);
             }
         }
         
