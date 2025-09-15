@@ -106,7 +106,7 @@
     <!-- Firebase SDKs -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInWithCustomToken, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, addDoc, onSnapshot, query, deleteDoc, doc, writeBatch, getDocs, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
         // 設定 Firestore 偵錯模式
@@ -222,38 +222,42 @@
                 auth = getAuth(app);
                 db = getFirestore(app);
 
-                // 認證使用者
-                if (initialAuthToken) {
-                    await signInWithCustomToken(auth, initialAuthToken);
-                } else {
-                    await signInAnonymously(auth);
-                }
-
-                // 取得使用者 ID
-                userId = auth.currentUser?.uid || crypto.randomUUID();
-                userIdSpan.textContent = userId;
-
-                // 監聽 Firestore 資料庫變化
-                const guestsCollection = collection(db, `artifacts/${appId}/public/data/guests`);
-                const q = query(guestsCollection);
-                onSnapshot(q, (snapshot) => {
-                    const guests = [];
-                    snapshot.forEach((doc) => {
-                        guests.push({ id: doc.id, ...doc.data() });
-                    });
-                    
-                    // 渲染列表
-                    visitorList.innerHTML = '';
-                    if (guests.length === 0) {
-                        emptyListMessage.textContent = '目前還沒有貴賓登記。';
-                        visitorList.appendChild(emptyListMessage);
-                    } else {
-                        guests.forEach(guest => {
-                            visitorList.appendChild(createVisitorItem(guest, guest.id));
+                // 使用 onAuthStateChanged 監聽器來處理認證狀態
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        // 使用者已登入，更新 UI
+                        userId = user.uid;
+                        userIdSpan.textContent = userId;
+                        
+                        // 監聽 Firestore 資料庫變化
+                        const guestsCollection = collection(db, `artifacts/${appId}/public/data/guests`);
+                        const q = query(guestsCollection);
+                        onSnapshot(q, (snapshot) => {
+                            const guests = [];
+                            snapshot.forEach((doc) => {
+                                guests.push({ id: doc.id, ...doc.data() });
+                            });
+                            
+                            // 渲染列表
+                            visitorList.innerHTML = '';
+                            if (guests.length === 0) {
+                                emptyListMessage.textContent = '目前還沒有貴賓登記。';
+                                visitorList.appendChild(emptyListMessage);
+                            } else {
+                                guests.forEach(guest => {
+                                    visitorList.appendChild(createVisitorItem(guest, guest.id));
+                                });
+                            }
                         });
+                    } else {
+                        // 使用者未登入，嘗試登入
+                        if (initialAuthToken) {
+                            await signInWithCustomToken(auth, initialAuthToken);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
                     }
                 });
-
             } catch (e) {
                 console.error("Firebase 初始化失敗：", e);
                 showCustomModal("應用程式初始化失敗。請檢查設定。");
@@ -266,6 +270,12 @@
             const unit = form.unit.value;
             const title = form.title.value;
             const name = form.name.value;
+
+            // 確保 userId 已經載入
+            if (!userId) {
+                showCustomModal("使用者ID尚未載入，請稍候再試。");
+                return;
+            }
 
             try {
                 const docRef = await addDoc(collection(db, `artifacts/${appId}/public/data/guests`), {
