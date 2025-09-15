@@ -12,7 +12,8 @@
         body {
             font-family: 'Inter', sans-serif;
             background-color: #f3f4f6;
-        </style>
+        }
+    </style>
 </head>
 <body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
 
@@ -70,14 +71,16 @@
             <div id="visitor-list" class="space-y-4">
                 <p id="loading-message" class="text-gray-500 text-center">載入中...</p>
             </div>
-            <div id="status-message" class="mt-4 p-3 rounded-lg text-sm text-center font-medium hidden"></div>
-
-            <!-- 新增顯示連線資訊的區塊 -->
-            <div class="mt-8 pt-4 border-t border-gray-200 text-center">
-                <p class="text-gray-400 text-xs mb-1">連線資訊 (供偵錯使用)</p>
-                <div class="bg-gray-50 p-3 rounded-lg text-xs font-mono text-gray-600">
-                    <p>App ID: <span id="display-app-id">...</span></p>
-                    <p>資料庫 ID: <span id="display-custom-id">...</span></p>
+            
+            <!-- 狀態與連線資訊 -->
+            <div class="mt-8 pt-4 border-t border-gray-200">
+                <div id="status-message" class="p-3 rounded-lg text-sm text-center font-medium"></div>
+                <div class="mt-4 text-center">
+                    <p class="text-gray-400 text-xs mb-1">連線資訊 (供偵錯使用)</p>
+                    <div class="bg-gray-50 p-3 rounded-lg text-xs font-mono text-gray-600">
+                        <p>App ID: <span id="display-app-id">...</span></p>
+                        <p>資料庫 ID: <span id="display-custom-id">...</span></p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -93,7 +96,7 @@
 
     <!-- Firebase 腳本 -->
     <script type="module">
-        import { initializeApp, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, doc, setDoc, onSnapshot, query, serverTimestamp, getDocs, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
@@ -114,6 +117,7 @@
         const resetButton = document.getElementById('reset-list');
         let isOnlineMode = false;
         let currentCustomId = null;
+        let unsubscribe = null; // 用於儲存 Firestore 監聽器的退訂函式
 
         // Custom alert and confirm popups to replace browser native ones
         function showAlert(message) {
@@ -136,12 +140,8 @@
 
         function setStatus(message, isError = false) {
             statusMessage.textContent = message;
-            statusMessage.classList.remove('hidden', 'bg-red-100', 'text-red-700', 'bg-green-100', 'text-green-700');
+            statusMessage.classList.remove('bg-red-100', 'text-red-700', 'bg-green-100', 'text-green-700');
             statusMessage.classList.add(isError ? 'bg-red-100' : 'bg-green-100', isError ? 'text-red-700' : 'text-green-700');
-        }
-
-        function clearStatus() {
-            statusMessage.classList.add('hidden');
         }
 
         /**
@@ -167,6 +167,7 @@
          * @param {Array<object>} visitors - An array of visitor data.
          */
         function renderVisitors(visitors) {
+            loadingMessage.classList.add('hidden');
             visitorList.innerHTML = '';
             if (visitors.length === 0) {
                 visitorList.innerHTML = `<p class="text-gray-500 text-center">目前沒有貴賓</p>`;
@@ -228,11 +229,6 @@
         
         // Local storage functions
         function loadLocalData() {
-            if (!currentCustomId) {
-                visitorsData = [];
-                renderVisitors(visitorsData);
-                return;
-            }
             const localStorageKey = `guest_list_${appId}_${currentCustomId}`;
             const data = localStorage.getItem(localStorageKey);
             visitorsData = data ? JSON.parse(data) : [];
@@ -338,39 +334,27 @@
             }
         }
 
-        // Firebase initialization and authentication
-        async function initializeFirebase() {
-            setLogLevel('Debug');
-            loadingMessage.textContent = '嘗試連線到共通資料庫...';
-            try {
-                if (Object.keys(firebaseConfig).length === 0 || !firebaseConfig.apiKey) {
-                    throw new Error("Invalid Firebase configuration provided by the environment.");
-                }
-                app = initializeApp(firebaseConfig);
-                auth = getAuth(app);
-                db = getFirestore(app);
-                if (initialAuthToken) {
-                    await signInWithCustomToken(auth, initialAuthToken);
-                } else {
-                    await signInAnonymously(auth);
-                }
-                console.log("Firebase authenticated successfully. User ID: ", auth.currentUser.uid);
-                isOnlineMode = true;
-                setStatus("✅ 成功連線到共通資料庫，名單將會即時同步！");
-                displayAppId.textContent = appId;
-                
-            } catch (error) {
-                console.error("Firebase initialization failed:", error);
-                loadingMessage.textContent = `連線失敗，自動切換至單機模式...`;
-                isOnlineMode = false;
-                setStatus(`❗ 連線失敗：${error.message}`, true);
-                displayAppId.textContent = appId;
+        /**
+         * Loads data based on the provided custom ID, switching between online/offline mode.
+         * @param {string} id - The custom ID for the collection.
+         */
+        function loadDataForId(id) {
+            currentCustomId = id;
+            displayCustomId.textContent = currentCustomId;
+            loadingMessage.classList.remove('hidden');
+            loadingMessage.textContent = '載入中...';
+
+            if (unsubscribe) {
+                unsubscribe();
             }
-            // Initial data load after Firebase is ready (or fails)
-            loadingMessage.textContent = '請輸入資料庫 ID 以載入名單...';
-            displayCustomId.textContent = 'N/A';
+
+            if (isOnlineMode) {
+                startListeningForVisitors(currentCustomId);
+            } else {
+                loadLocalData();
+            }
         }
-        
+
         /**
          * Starts listening for visitor data changes from Firestore based on the custom ID.
          * @param {string} id - The custom ID for the collection.
@@ -378,80 +362,116 @@
         function startListeningForVisitors(id) {
             const visitorsCollection = collection(db, `artifacts/${appId}/public/data/${id}`);
             const q = query(visitorsCollection);
-            onSnapshot(q, (snapshot) => {
+            
+            unsubscribe = onSnapshot(q, (snapshot) => {
                 visitorsData = [];
                 snapshot.forEach((doc) => {
                     visitorsData.push({ id: doc.id, ...doc.data() });
                 });
                 renderVisitors(visitorsData);
             }, (error) => {
-                console.error("Error listening to visitors data:", error);
-                showAlert("載入資料時發生錯誤。");
+                console.error("Error listening for visitors:", error);
+                setStatus(`❗ 監聽資料庫錯誤，已切換至單機模式：${error.message}`, true);
+                isOnlineMode = false;
+                loadLocalData();
             });
         }
+        
+        async function startApp() {
+            loadingMessage.classList.remove('hidden');
+            loadingMessage.textContent = '嘗試連線到共通資料庫...';
+            displayAppId.textContent = appId;
+            displayCustomId.textContent = 'N/A';
 
-        // Handle form submission
+            try {
+                if (Object.keys(firebaseConfig).length === 0 || !firebaseConfig.apiKey) {
+                    throw new Error("Invalid Firebase configuration provided by the environment.");
+                }
+
+                app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+                
+                isOnlineMode = true;
+                setStatus("✅ 成功連線到共通資料庫，名單將會即時同步！", false);
+                loadingMessage.textContent = '請輸入資料庫 ID 以載入名單...';
+
+            } catch (error) {
+                isOnlineMode = false;
+                setStatus(`❗ 連線失敗：${error.message}，已切換至單機模式。`, true);
+                loadingMessage.textContent = '請輸入資料庫 ID 以載入名單...';
+            }
+        }
+        
+        // 處理表單提交
         visitorForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const unit = document.getElementById('unit').value.trim();
             const title = document.getElementById('title').value.trim();
             const name = document.getElementById('name').value.trim();
             const customId = customIdInput.value.trim();
-
-            if (!customId || !unit || !title || !name) {
-                showAlert("請填寫所有欄位。");
+            
+            if (!customId) {
+                showAlert("請先輸入共同資料庫 ID！");
+                return;
+            }
+            if (!unit || !title || !name) {
                 return;
             }
 
-            if (customId !== currentCustomId) {
-                currentCustomId = customId;
-                displayCustomId.textContent = currentCustomId;
-                if (isOnlineMode) {
-                    startListeningForVisitors(currentCustomId);
-                } else {
-                    loadLocalData();
-                }
+            if (currentCustomId !== customId) {
+                loadDataForId(customId);
             }
 
             if (isOnlineMode) {
                 try {
-                    const visitorsCollection = collection(db, `artifacts/${appId}/public/data/${currentCustomId}`);
+                    const visitorsCollection = collection(db, `artifacts/${appId}/public/data/${customId}`);
                     await setDoc(doc(visitorsCollection), {
                         unit: unit,
                         title: title,
                         name: name,
-                        timestamp: serverTimestamp(),
-                        visited: false
+                        visited: false,
+                        timestamp: serverTimestamp()
                     });
                 } catch (error) {
-                    console.error("Error adding document: ", error);
-                    showAlert("提交時發生錯誤。");
+                    console.error("新增文件時發生錯誤: ", error);
+                    showAlert("新增資料時發生錯誤，請稍後再試。");
                 }
             } else {
                 const newVisitor = {
-                    id: Date.now().toString(),
-                    unit,
-                    title,
-                    name,
-                    timestamp: new Date().getTime(),
-                    visited: false
+                    id: crypto.randomUUID(),
+                    unit: unit,
+                    title: title,
+                    name: name,
+                    visited: false,
+                    timestamp: Date.now()
                 };
                 visitorsData.push(newVisitor);
                 saveLocalData();
                 renderVisitors(visitorsData);
             }
-            document.getElementById('unit').value = '';
-            document.getElementById('title').value = '';
-            document.getElementById('name').value = '';
+
+            // 清空表單
+            visitorForm.reset();
         });
 
-        // Add event listeners for the buttons
+        // 按鈕事件
         downloadButton.addEventListener('click', downloadGuestList);
         resetButton.addEventListener('click', resetGuestList);
+        customIdInput.addEventListener('change', (e) => {
+            if (e.target.value.trim()) {
+                loadDataForId(e.target.value.trim());
+            }
+        });
 
-        // Start the application
-        initializeFirebase();
-
+        // 啟動應用程式
+        startApp();
     </script>
 </body>
 </html>
