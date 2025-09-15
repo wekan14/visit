@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>貴賓登記系統</title>
+    <title>即時貴賓名單</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Inter Font -->
@@ -12,11 +12,6 @@
         body {
             font-family: 'Inter', sans-serif;
             background-color: #f3f4f6;
-        }
-        .container-bg {
-            background-image: url('https://placehold.co/1024x768/e5e7eb/4b5563?text=Visitor+System');
-            background-size: cover;
-            background-position: center;
         }
     </style>
 </head>
@@ -51,7 +46,7 @@
         <!-- 右側：貴賓列表 -->
         <div class="md:w-1/2 p-8 md:p-10 bg-white">
             <div class="flex flex-col sm:flex-row justify-between items-center mb-4">
-                <h2 class="text-2xl font-bold text-gray-800 text-center sm:text-left mb-4 sm:mb-0">目前貴賓列表</h2>
+                <h2 class="text-2xl font-bold text-gray-800 text-center sm:text-left mb-4 sm:mb-0">即時貴賓列表</h2>
                 <div class="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
                     <button id="download-list" class="flex items-center justify-center bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-2 px-4 rounded-lg transition-colors duration-200">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
@@ -75,29 +70,25 @@
         </div>
     </div>
 
+    <!-- 自定義彈窗 -->
+    <div id="custom-alert" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white p-6 rounded-lg shadow-xl max-w-xs w-full mx-4 text-center">
+            <p id="alert-message" class="text-lg font-semibold text-gray-800 mb-4"></p>
+            <button id="alert-ok-btn" class="px-4 py-2 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 transition-colors">確定</button>
+        </div>
+    </div>
+
     <!-- Firebase 腳本 -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInWithCustomToken, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, doc, setDoc, onSnapshot, query, serverTimestamp, getDocs, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // 全域變數，由外部環境提供，請勿修改
+        // 全域變數，由 Canvas 環境自動提供，無需手動修改
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
         
-        // 檢查並使用外部提供的 Firebase 設定，如果不存在則使用預設值
-        let firebaseConfig = {};
-        if (typeof __firebase_config !== 'undefined' && __firebase_config) {
-            try {
-                firebaseConfig = JSON.parse(__firebase_config);
-                console.log("Using external Firebase config.");
-            } catch (e) {
-                console.error("Failed to parse external Firebase config. Using a default empty config.", e);
-            }
-        } else {
-            console.log("No external Firebase config found. Using a default empty config. App may not function properly without a valid config.");
-        }
-
         let app, db, auth, visitorsData = [];
         const visitorForm = document.getElementById('visitor-form');
         const visitorList = document.getElementById('visitor-list');
@@ -155,11 +146,9 @@
 
             // 在客戶端進行排序
             const sortedVisitors = visitors.sort((a, b) => {
-                // 將未介紹的貴賓排在前面
                 if (a.visited !== b.visited) {
                     return a.visited ? 1 : -1;
                 }
-                // 如果介紹狀態相同，則根據時間戳由新到舊排序
                 if (a.timestamp && b.timestamp) {
                     return b.timestamp.toDate().getTime() - a.timestamp.toDate().getTime();
                 }
@@ -223,13 +212,11 @@
             
             const finalCsv = `${header.join(",")}\n${csv}`;
             
-            // 加入 BOM 標記，解決 Excel 亂碼問題
             const bom = '\uFEff';
             const blob = new Blob([bom + finalCsv], { type: 'text/csv;charset=utf-8;' });
             const link = document.createElement("a");
             const url = URL.createObjectURL(blob);
             
-            // 取得今天的日期作為檔名
             const today = new Date();
             const dateStr = `${today.getFullYear()}-${(today.getMonth() + 1).toString().padStart(2, '0')}-${today.getDate().toString().padStart(2, '0')}`;
             
@@ -250,7 +237,6 @@
                 return;
             }
 
-            // 使用自定義的彈窗取代 window.confirm
             const showCustomConfirm = () => {
                 const overlay = document.createElement('div');
                 overlay.className = 'fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50';
@@ -317,14 +303,11 @@
         async function initializeFirebase() {
             loadingMessage.textContent = '連線中...';
             
-            // 檢查 Firebase 設定是否可用
-            if (!firebaseConfig || Object.keys(firebaseConfig).length === 0) {
-                loadingMessage.textContent = '初始化失敗：缺少 Firebase 設定。';
-                console.error("Firebase initialization failed: Missing or empty firebase config.");
-                return;
-            }
-
             try {
+                if (Object.keys(firebaseConfig).length === 0) {
+                    throw new Error("Missing Firebase configuration.");
+                }
+                
                 app = initializeApp(firebaseConfig);
                 auth = getAuth(app);
                 db = getFirestore(app);
@@ -341,8 +324,8 @@
 
             } catch (error) {
                 console.error("Firebase initialization failed:", error);
-                loadingMessage.textContent = '初始化失敗，請檢查網路連線或重新整理頁面。';
-                showAlert("初始化失敗，請檢查網路連線或重新整理頁面。");
+                loadingMessage.textContent = `初始化失敗：${error.message}`;
+                showAlert(`初始化失敗：${error.message}`);
             }
         }
         
@@ -354,7 +337,7 @@
             const q = query(visitorsCollection);
             
             onSnapshot(q, (snapshot) => {
-                visitorsData = []; // 更新全域變數
+                visitorsData = [];
                 snapshot.forEach((doc) => {
                     visitorsData.push({ id: doc.id, ...doc.data() });
                 });
@@ -387,7 +370,6 @@
                     visited: false
                 });
                 
-                // 清空表單
                 visitorForm.reset();
             } catch (error) {
                 console.error("Error adding document: ", error);
