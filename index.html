@@ -140,26 +140,10 @@
         // --- Firebase Configuration ---
         // Global variables provided by the Canvas environment
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
-        // User-provided Firebase config (used as fallback for demonstration)
-        const userProvidedConfig = {
-            apiKey: "AIzaSyDUzC3l_uleVT_wHedmPyqqVUSlvhOmTqQ",
-            authDomain: "visit-9b675.firebaseapp.com",
-            projectId: "visit-9b675",
-            storageBucket: "visit-9b675.firebasestorage.app",
-            messagingSenderId: "391397238388",
-            appId: "1:391397238388:web:268b5ad0e6bbe3af2e5321",
-            measurementId: "G-FQ8G02N23V"
-        };
-        const appConfig = Object.keys(firebaseConfig).length > 0 ? firebaseConfig : userProvidedConfig;
-
-        // --- Firebase Initialization and Authentication ---
-        const app = initializeApp(appConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-        
+        let app, auth, db;
         const userIdElement = document.getElementById('user-id');
         const loadingElement = document.getElementById('loading');
         const guestListContainer = document.getElementById('guest-list-container');
@@ -172,6 +156,14 @@
 
         async function authenticateAndInitialize() {
             try {
+                if (!firebaseConfig) {
+                    throw new Error("Firebase configuration is not provided.");
+                }
+
+                app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+                
                 if (initialAuthToken) {
                     await signInWithCustomToken(auth, initialAuthToken);
                 } else {
@@ -183,7 +175,7 @@
             } catch (error) {
                 console.error("Firebase authentication failed:", error);
                 userIdElement.textContent = '認證失敗';
-                showModal('錯誤', '認證失敗，請檢查控制台。');
+                showModal('錯誤', '認證或資料庫連線失敗，請稍後重試。');
             }
         }
 
