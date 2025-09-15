@@ -73,8 +73,9 @@
                 <div id="status-message" class="p-3 rounded-lg text-sm text-center font-medium"></div>
                 <div class="mt-4 text-center">
                     <p class="text-gray-400 text-xs mb-1">連線資訊 (供偵錯使用)</p>
-                    <div class="bg-gray-50 p-3 rounded-lg text-xs font-mono text-gray-600">
+                    <div class="bg-gray-50 p-3 rounded-lg text-xs font-mono text-gray-600 break-all">
                         <p>App ID: <span id="display-app-id">...</span></p>
+                        <p>連線路徑: <span id="display-collection-path">...</span></p>
                     </div>
                 </div>
             </div>
@@ -91,31 +92,26 @@
 
     <!-- Firebase 腳本 -->
     <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-app.js";
-        import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-analytics.js";
-        import { getFirestore, collection, doc, setDoc, onSnapshot, query, serverTimestamp, getDocs, writeBatch } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
-        import { setLogLevel } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
-
-        // Firebase configuration from the user
-        const firebaseConfig = {
-            apiKey: "AIzaSyDUzC3l_uleVT_wHedmPyqqVUSlvhOmTqQ",
-            authDomain: "visit-9b675.firebaseapp.com",
-            projectId: "visit-9b675",
-            storageBucket: "visit-9b675.firebasestorage.app",
-            messagingSenderId: "391397238388",
-            appId: "1:391397238388:web:268b5ad0e6bbe3af2e5321",
-            measurementId: "G-FQ8G02N23V"
-        };
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, doc, setDoc, onSnapshot, query, serverTimestamp, getDocs, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
-        const appId = firebaseConfig.appId;
+        // 從環境變數獲取 Firebase 配置
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        
         const GUEST_LIST_COLLECTION_ID = 'universal-guest-list';
+        const FIRESTORE_COLLECTION_PATH = `artifacts/${appId}/public/data/${GUEST_LIST_COLLECTION_ID}`;
 
-        let app, db, visitorsData = [];
+        let app, db, auth, visitorsData = [];
         const visitorForm = document.getElementById('visitor-form');
         const visitorList = document.getElementById('visitor-list');
         const loadingMessage = document.getElementById('loading-message');
         const statusMessage = document.getElementById('status-message');
         const displayAppId = document.getElementById('display-app-id');
+        const displayCollectionPath = document.getElementById('display-collection-path');
         const downloadButton = document.getElementById('download-list');
         const resetButton = document.getElementById('reset-list');
         
@@ -211,7 +207,7 @@
                     const docId = e.target.dataset.docId;
                     const isVisited = e.target.dataset.visited === 'true';
                     try {
-                        const docRef = doc(db, `artifacts/${appId}/public/data/${GUEST_LIST_COLLECTION_ID}`, docId);
+                        const docRef = doc(db, FIRESTORE_COLLECTION_PATH, docId);
                         await setDoc(docRef, { visited: !isVisited }, { merge: true });
                     } catch (error) {
                         console.error("Error updating status: ", error);
@@ -293,7 +289,7 @@
                 return;
             }
             try {
-                const visitorsCollection = collection(db, `artifacts/${appId}/public/data/${GUEST_LIST_COLLECTION_ID}`);
+                const visitorsCollection = collection(db, FIRESTORE_COLLECTION_PATH);
                 const snapshot = await getDocs(visitorsCollection);
                 const batch = writeBatch(db);
                 snapshot.forEach((doc) => {
@@ -311,7 +307,7 @@
          * Starts listening for visitor data changes from Firestore based on the custom ID.
          */
         function startListeningForVisitors() {
-            const visitorsCollection = collection(db, `artifacts/${appId}/public/data/${GUEST_LIST_COLLECTION_ID}`);
+            const visitorsCollection = collection(db, FIRESTORE_COLLECTION_PATH);
             const q = query(visitorsCollection);
             
             onSnapshot(q, (snapshot) => {
@@ -330,6 +326,7 @@
             loadingMessage.classList.remove('hidden');
             loadingMessage.textContent = '嘗試連線到共通資料庫...';
             displayAppId.textContent = appId;
+            displayCollectionPath.textContent = FIRESTORE_COLLECTION_PATH;
 
             try {
                 if (Object.keys(firebaseConfig).length === 0 || !firebaseConfig.apiKey) {
@@ -338,12 +335,17 @@
 
                 app = initializeApp(firebaseConfig);
                 db = getFirestore(app);
+                auth = getAuth(app);
                 
+                // 執行登入
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
                 setStatus("✅ 成功連線到共通資料庫，名單將會即時同步！", false);
                 loadingMessage.textContent = '載入中...';
-                
-                // Analytics is not essential for the app's functionality, but we can initialize it since the user provided it.
-                getAnalytics(app);
                 
                 // 直接啟動監聽器
                 startListeningForVisitors();
@@ -365,8 +367,9 @@
             }
 
             try {
-                const visitorsCollection = collection(db, `artifacts/${appId}/public/data/${GUEST_LIST_COLLECTION_ID}`);
-                await setDoc(doc(visitorsCollection), {
+                const visitorsCollection = collection(db, FIRESTORE_COLLECTION_PATH);
+                // 使用 addDoc 來新增文件
+                await addDoc(visitorsCollection, {
                     unit: unit,
                     title: title,
                     name: name,
