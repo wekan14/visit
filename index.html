@@ -134,9 +134,13 @@
     <script type="module">
         // Import necessary Firebase SDKs from CDN
         import { initializeApp } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-auth.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-auth.js";
         import { getFirestore, collection, addDoc, onSnapshot, serverTimestamp, query, doc, deleteDoc, getDocs, writeBatch, updateDoc } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-app.js";
         
+        // Enable Firebase debug logging
+        setLogLevel('debug');
+
         // --- Firebase Configuration ---
         // Global variables provided by the Canvas environment
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
@@ -154,6 +158,7 @@
 
         let guestsData = []; // To store the current list of guests for download
 
+        // --- Firebase Initialization and Authentication ---
         async function authenticateAndInitialize() {
             try {
                 if (!firebaseConfig) {
@@ -164,29 +169,46 @@
                 auth = getAuth(app);
                 db = getFirestore(app);
                 
-                if (initialAuthToken) {
-                    await signInWithCustomToken(auth, initialAuthToken);
-                } else {
-                    await signInAnonymously(auth);
-                }
-                const userId = auth.currentUser?.uid || crypto.randomUUID();
-                userIdElement.textContent = userId;
-                setupRealtimeListener(userId);
+                // Use onAuthStateChanged for a more robust sign-in flow
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        // User is signed in, proceed with app logic
+                        const userId = user.uid;
+                        userIdElement.textContent = userId;
+                        setupRealtimeListener();
+                    } else {
+                        // User is signed out, try to sign in with custom token or anonymously
+                        console.log("No user signed in. Attempting sign-in...");
+                        try {
+                            if (initialAuthToken) {
+                                await signInWithCustomToken(auth, initialAuthToken);
+                            } else {
+                                await signInAnonymously(auth);
+                            }
+                        } catch (error) {
+                            console.error("Authentication failed:", error);
+                            userIdElement.textContent = '認證失敗';
+                            showModal('錯誤', '認證或資料庫連線失敗，請稍後重試。');
+                            // Hide loading spinner and form if authentication fails
+                            loadingElement.classList.add('hidden');
+                            addGuestForm.classList.add('hidden');
+                        }
+                    }
+                });
             } catch (error) {
-                console.error("Firebase authentication failed:", error);
-                userIdElement.textContent = '認證失敗';
-                showModal('錯誤', '認證或資料庫連線失敗，請稍後重試。');
+                console.error("Firebase initialization failed:", error);
+                userIdElement.textContent = '初始化失敗';
+                showModal('錯誤', '應用程式初始化失敗，請檢查控制台。');
             }
         }
 
         // --- Realtime Data Listener and UI Update ---
-        function setupRealtimeListener(userId) {
-            // Firestore path for public data, using the app ID
+        function setupRealtimeListener() {
             const guestsCollectionPath = `/artifacts/${appId}/public/data/guests`;
             const q = query(collection(db, guestsCollectionPath));
 
             onSnapshot(q, (querySnapshot) => {
-                guestsData = []; // Reset the data array
+                guestsData = [];
                 querySnapshot.forEach((doc) => {
                     guestsData.push({ id: doc.id, ...doc.data() });
                 });
@@ -205,13 +227,10 @@
         function renderGuestList(guests) {
             guestListElement.innerHTML = '';
             
-            // Custom sort logic based on user's request
             const sortedGuests = guests.sort((a, b) => {
-                // Primary sort: Not introduced guests first (false comes before true)
                 if (a.introduced !== b.introduced) {
                     return a.introduced ? 1 : -1;
                 }
-                // Secondary sort: By timestamp in ascending order (earliest first)
                 if (!a.timestamp || !b.timestamp) return 0;
                 return a.timestamp.toDate() - b.timestamp.toDate();
             });
@@ -251,7 +270,6 @@
                 guestListElement.appendChild(row);
             });
 
-            // Attach event listeners to the new buttons
             document.querySelectorAll('button[data-status="false"]').forEach(button => {
                 button.addEventListener('click', (e) => {
                     const guestId = e.target.getAttribute('data-id');
@@ -259,7 +277,6 @@
                 });
             });
 
-            // Attach event listeners to delete buttons
             document.querySelectorAll('.delete-btn').forEach(button => {
                 button.addEventListener('click', (e) => {
                     const guestId = e.target.getAttribute('data-id');
@@ -281,7 +298,7 @@
                     name,
                     title,
                     company,
-                    introduced: false, // Default to not introduced
+                    introduced: false,
                     timestamp: serverTimestamp()
                 });
                 
@@ -353,11 +370,10 @@
                 guest.name,
                 guest.timestamp ? new Date(guest.timestamp.toDate()).toLocaleString() : '',
                 guest.introduced ? '已介紹' : '未介紹'
-            ].map(value => `"${value}"`).join(',')); // Enclose values in quotes to handle commas
+            ].map(value => `"${value}"`).join(','));
 
             const csvContent = [header.join(','), ...csvRows].join('\n');
             
-            // Prepend the UTF-8 BOM to ensure Excel opens the file correctly
             const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
             const url = URL.createObjectURL(blob);
             const link = document.createElement('a');
