@@ -212,7 +212,7 @@
             const finalCsv = `${header.join(",")}\n${csv}`;
             
             // 加入 BOM 標記，解決 Excel 亂碼問題
-            const bom = '\uFEFF';
+            const bom = '\uFEff';
             const blob = new Blob([bom + finalCsv], { type: 'text/csv;charset=utf-8;' });
             const link = document.createElement("a");
             const url = URL.createObjectURL(blob);
@@ -302,8 +302,15 @@
         }
 
         // Firebase 初始化及認證
-        async function initializeFirebase(retries = 3, delay = 1000) {
+        async function initializeFirebase() {
             loadingMessage.textContent = '連線中...';
+            // 在嘗試連線前，先檢查必要的設定是否存在
+            if (!firebaseConfig || Object.keys(firebaseConfig).length === 0) {
+                loadingMessage.textContent = '初始化失敗：缺少 Firebase 設定。';
+                console.error("Firebase initialization failed: Missing or empty firebase config.");
+                return;
+            }
+
             try {
                 app = initializeApp(firebaseConfig);
                 auth = getAuth(app);
@@ -322,13 +329,8 @@
 
             } catch (error) {
                 console.error("Firebase initialization failed:", error);
-                if (retries > 0) {
-                    loadingMessage.textContent = `連線失敗，自動重試... (${retries} 次) `;
-                    setTimeout(() => initializeFirebase(retries - 1, delay * 2), delay);
-                } else {
-                    loadingMessage.textContent = '初始化失敗，請重新整理頁面。';
-                    showAlert("初始化失敗，請檢查網路連線或重新整理頁面。");
-                }
+                loadingMessage.textContent = '初始化失敗，請重新整理頁面。';
+                showAlert("初始化失敗，請檢查網路連線或重新整理頁面。");
             }
         }
         
