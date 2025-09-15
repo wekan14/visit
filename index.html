@@ -22,13 +22,9 @@
         <!-- 左側：貴賓登記區 -->
         <div class="md:w-1/2 p-8 md:p-10 flex flex-col justify-center bg-gray-50 border-r border-gray-200">
             <h1 class="text-3xl font-bold text-gray-800 mb-2 text-center">貴賓登記</h1>
-            <p class="text-gray-500 mb-8 text-center">請填寫您的單位、職稱與姓名</p>
+            <p class="text-gray-500 mb-8 text-center">所有人的登記都會即時同步</p>
             
             <form id="visitor-form" class="space-y-6">
-                <div>
-                    <label for="custom-id" class="block text-sm font-medium text-gray-700 mb-1">共同資料庫 ID</label>
-                    <input type="text" id="custom-id" required placeholder="例如：2024活動或團隊代碼" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors duration-200">
-                </div>
                 <div>
                     <label for="unit" class="block text-sm font-medium text-gray-700 mb-1">單位</label>
                     <input type="text" id="unit" required placeholder="例如：Google 台灣" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors duration-200">
@@ -69,7 +65,7 @@
             
             <!-- 貴賓列表容器 -->
             <div id="visitor-list" class="space-y-4">
-                <p id="loading-message" class="text-gray-500 text-center">載入中...</p>
+                <p id="loading-message" class="text-gray-500 text-center">連線中...</p>
             </div>
             
             <!-- 狀態與連線資訊 -->
@@ -79,7 +75,6 @@
                     <p class="text-gray-400 text-xs mb-1">連線資訊 (供偵錯使用)</p>
                     <div class="bg-gray-50 p-3 rounded-lg text-xs font-mono text-gray-600">
                         <p>App ID: <span id="display-app-id">...</span></p>
-                        <p>資料庫 ID: <span id="display-custom-id">...</span></p>
                     </div>
                 </div>
             </div>
@@ -99,6 +94,7 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-app.js";
         import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-analytics.js";
         import { getFirestore, collection, doc, setDoc, onSnapshot, query, serverTimestamp, getDocs, writeBatch } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
 
         // Firebase configuration from the user
         const firebaseConfig = {
@@ -112,20 +108,19 @@
         };
         
         const appId = firebaseConfig.appId;
-        
+        const GUEST_LIST_COLLECTION_ID = 'universal-guest-list';
+
         let app, db, visitorsData = [];
         const visitorForm = document.getElementById('visitor-form');
         const visitorList = document.getElementById('visitor-list');
         const loadingMessage = document.getElementById('loading-message');
         const statusMessage = document.getElementById('status-message');
         const displayAppId = document.getElementById('display-app-id');
-        const displayCustomId = document.getElementById('display-custom-id');
-        const customIdInput = document.getElementById('custom-id');
         const downloadButton = document.getElementById('download-list');
         const resetButton = document.getElementById('reset-list');
-        let isOnlineMode = false;
-        let currentCustomId = null;
-        let unsubscribe = null; // Used to store the Firestore listener unsubscribe function
+        
+        // 啟用 Firestore 除錯模式
+        setLogLevel('debug');
 
         // Custom alert and confirm popups to replace browser native ones
         function showAlert(message) {
@@ -215,44 +210,21 @@
                 button.addEventListener('click', async (e) => {
                     const docId = e.target.dataset.docId;
                     const isVisited = e.target.dataset.visited === 'true';
-                    if (isOnlineMode) {
-                        try {
-                            const docRef = doc(db, `artifacts/${appId}/public/data/${currentCustomId}`, docId);
-                            await setDoc(docRef, { visited: !isVisited }, { merge: true });
-                        } catch (error) {
-                            console.error("Error updating status: ", error);
-                            showAlert("更新狀態時發生錯誤。");
-                        }
-                    } else {
-                        const visitorToUpdate = visitorsData.find(v => v.id === docId);
-                        if (visitorToUpdate) {
-                            visitorToUpdate.visited = !isVisited;
-                            saveLocalData();
-                            renderVisitors(visitorsData);
-                        }
+                    try {
+                        const docRef = doc(db, `artifacts/${appId}/public/data/${GUEST_LIST_COLLECTION_ID}`, docId);
+                        await setDoc(docRef, { visited: !isVisited }, { merge: true });
+                    } catch (error) {
+                        console.error("Error updating status: ", error);
+                        showAlert("更新狀態時發生錯誤。");
                     }
                 });
             });
         }
         
-        // Local storage functions
-        function loadLocalData() {
-            const localStorageKey = `guest_list_${appId}_${currentCustomId}`;
-            const data = localStorage.getItem(localStorageKey);
-            visitorsData = data ? JSON.parse(data) : [];
-            renderVisitors(visitorsData);
-        }
-
-        function saveLocalData() {
-            if (!currentCustomId) return;
-            const localStorageKey = `guest_list_${appId}_${currentCustomId}`;
-            localStorage.setItem(localStorageKey, JSON.stringify(visitorsData));
-        }
-
         /**
          * Downloads the guest list as a CSV file.
          */
-        function downloadGuestList() {
+        async function downloadGuestList() {
             if (visitorsData.length === 0) {
                 showAlert("目前沒有貴賓資料可以下載。");
                 return;
@@ -320,58 +292,29 @@
             if (!(await showCustomConfirm())) {
                 return;
             }
-            if (isOnlineMode) {
-                const visitorsCollection = collection(db, `artifacts/${appId}/public/data/${currentCustomId}`);
+            try {
+                const visitorsCollection = collection(db, `artifacts/${appId}/public/data/${GUEST_LIST_COLLECTION_ID}`);
                 const snapshot = await getDocs(visitorsCollection);
                 const batch = writeBatch(db);
                 snapshot.forEach((doc) => {
                     batch.delete(doc.ref);
                 });
-                try {
-                    await batch.commit();
-                    showAlert("貴賓名單已成功重設。");
-                } catch (error) {
-                    console.error("重設名單時發生錯誤: ", error);
-                    showAlert("重設名單時發生錯誤。");
-                }
-            } else {
-                localStorage.removeItem(`guest_list_${appId}_${currentCustomId}`);
-                visitorsData = [];
-                renderVisitors(visitorsData);
+                await batch.commit();
                 showAlert("貴賓名單已成功重設。");
-            }
-        }
-
-        /**
-         * Loads data based on the provided custom ID, switching between online/offline mode.
-         * @param {string} id - The custom ID for the collection.
-         */
-        function loadDataForId(id) {
-            currentCustomId = id;
-            displayCustomId.textContent = currentCustomId;
-            loadingMessage.classList.remove('hidden');
-            loadingMessage.textContent = '載入中...';
-
-            if (unsubscribe) {
-                unsubscribe();
-            }
-
-            if (isOnlineMode) {
-                startListeningForVisitors(currentCustomId);
-            } else {
-                loadLocalData();
+            } catch (error) {
+                console.error("重設名單時發生錯誤: ", error);
+                showAlert("重設名單時發生錯誤。");
             }
         }
 
         /**
          * Starts listening for visitor data changes from Firestore based on the custom ID.
-         * @param {string} id - The custom ID for the collection.
          */
-        function startListeningForVisitors(id) {
-            const visitorsCollection = collection(db, `artifacts/${appId}/public/data/${id}`);
+        function startListeningForVisitors() {
+            const visitorsCollection = collection(db, `artifacts/${appId}/public/data/${GUEST_LIST_COLLECTION_ID}`);
             const q = query(visitorsCollection);
             
-            unsubscribe = onSnapshot(q, (snapshot) => {
+            onSnapshot(q, (snapshot) => {
                 visitorsData = [];
                 snapshot.forEach((doc) => {
                     visitorsData.push({ id: doc.id, ...doc.data() });
@@ -379,9 +322,7 @@
                 renderVisitors(visitorsData);
             }, (error) => {
                 console.error("Error listening for visitors:", error);
-                setStatus(`❗ 監聽資料庫錯誤，已切換至單機模式：${error.message}`, true);
-                isOnlineMode = false;
-                loadLocalData();
+                setStatus(`❗ 監聽資料庫錯誤：${error.message}`, true);
             });
         }
         
@@ -389,7 +330,6 @@
             loadingMessage.classList.remove('hidden');
             loadingMessage.textContent = '嘗試連線到共通資料庫...';
             displayAppId.textContent = appId;
-            displayCustomId.textContent = 'N/A';
 
             try {
                 if (Object.keys(firebaseConfig).length === 0 || !firebaseConfig.apiKey) {
@@ -399,17 +339,17 @@
                 app = initializeApp(firebaseConfig);
                 db = getFirestore(app);
                 
-                isOnlineMode = true;
                 setStatus("✅ 成功連線到共通資料庫，名單將會即時同步！", false);
-                loadingMessage.textContent = '請輸入資料庫 ID 以載入名單...';
+                loadingMessage.textContent = '載入中...';
                 
                 // Analytics is not essential for the app's functionality, but we can initialize it since the user provided it.
                 getAnalytics(app);
+                
+                // 直接啟動監聽器
+                startListeningForVisitors();
 
             } catch (error) {
-                isOnlineMode = false;
-                setStatus(`❗ 連線失敗：${error.message}，已切換至單機模式。`, true);
-                loadingMessage.textContent = '請輸入資料庫 ID 以載入名單...';
+                setStatus(`❗ 連線失敗：${error.message}，請檢查你的網路。`, true);
             }
         }
         
@@ -419,60 +359,32 @@
             const unit = document.getElementById('unit').value.trim();
             const title = document.getElementById('title').value.trim();
             const name = document.getElementById('name').value.trim();
-            const customId = customIdInput.value.trim();
             
-            if (!customId) {
-                showAlert("請先輸入共同資料庫 ID！");
-                return;
-            }
             if (!unit || !title || !name) {
                 return;
             }
 
-            if (currentCustomId !== customId) {
-                loadDataForId(customId);
-            }
-
-            if (isOnlineMode) {
-                try {
-                    const visitorsCollection = collection(db, `artifacts/${appId}/public/data/${customId}`);
-                    await setDoc(doc(visitorsCollection), {
-                        unit: unit,
-                        title: title,
-                        name: name,
-                        visited: false,
-                        timestamp: serverTimestamp()
-                    });
-                } catch (error) {
-                    console.error("新增文件時發生錯誤: ", error);
-                    showAlert("新增資料時發生錯誤，請稍後再試。");
-                }
-            } else {
-                const newVisitor = {
-                    id: crypto.randomUUID(),
+            try {
+                const visitorsCollection = collection(db, `artifacts/${appId}/public/data/${GUEST_LIST_COLLECTION_ID}`);
+                await setDoc(doc(visitorsCollection), {
                     unit: unit,
                     title: title,
                     name: name,
                     visited: false,
-                    timestamp: Date.now()
-                };
-                visitorsData.push(newVisitor);
-                saveLocalData();
-                renderVisitors(visitorsData);
+                    timestamp: serverTimestamp()
+                });
+                
+                // 清空表單
+                visitorForm.reset();
+            } catch (error) {
+                console.error("新增文件時發生錯誤: ", error);
+                showAlert("新增資料時發生錯誤，請稍後再試。");
             }
-
-            // 清空表單
-            visitorForm.reset();
         });
 
         // 按鈕事件
         downloadButton.addEventListener('click', downloadGuestList);
         resetButton.addEventListener('click', resetGuestList);
-        customIdInput.addEventListener('change', (e) => {
-            if (e.target.value.trim()) {
-                loadDataForId(e.target.value.trim());
-            }
-        });
 
         // 啟動應用程式
         startApp();
