@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>貴賓登記系統</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Inter Font -->
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+        .container-bg {
+            background-image: url('https://placehold.co/1024x768/e5e7eb/4b5563?text=Visitor+System');
+            background-size: cover;
+            background-position: center;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
+
+    <div class="w-full max-w-4xl bg-white rounded-xl shadow-2xl overflow-hidden md:flex">
+
+        <!-- 左側：貴賓登記區 -->
+        <div class="md:w-1/2 p-8 md:p-10 flex flex-col justify-center bg-gray-50 border-r border-gray-200">
+            <h1 class="text-3xl font-bold text-gray-800 mb-2 text-center">貴賓登記</h1>
+            <p class="text-gray-500 mb-8 text-center">請填寫您的單位、職稱與姓名</p>
+            
+            <form id="visitor-form" class="space-y-6">
+                <div>
+                    <label for="unit" class="block text-sm font-medium text-gray-700 mb-1">單位</label>
+                    <input type="text" id="unit" required placeholder="例如：Google 台灣" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors duration-200">
+                </div>
+                <div>
+                    <label for="title" class="block text-sm font-medium text-gray-700 mb-1">職稱</label>
+                    <input type="text" id="title" required placeholder="例如：軟體工程師" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors duration-200">
+                </div>
+                <div>
+                    <label for="name" class="block text-sm font-medium text-gray-700 mb-1">姓名</label>
+                    <input type="text" id="name" required placeholder="例如：王小明" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors duration-200">
+                </div>
+                <button type="submit" class="w-full bg-indigo-600 text-white font-semibold py-3 rounded-lg shadow-lg hover:bg-indigo-700 focus:outline-none focus:ring-4 focus:ring-indigo-500/50 transition-transform duration-200 transform hover:scale-105">
+                    提交
+                </button>
+            </form>
+        </div>
+
+        <!-- 右側：遠端貴賓列表 -->
+        <div class="md:w-1/2 p-8 md:p-10 bg-white">
+            <div class="flex flex-col sm:flex-row justify-between items-center mb-4">
+                <h2 class="text-2xl font-bold text-gray-800 text-center sm:text-left mb-4 sm:mb-0">目前貴賓列表</h2>
+                <div class="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
+                    <button id="download-list" class="flex items-center justify-center bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-2 px-4 rounded-lg transition-colors duration-200">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
+                        </svg>
+                        下載名冊
+                    </button>
+                    <button id="reset-list" class="flex items-center justify-center bg-red-100 hover:bg-red-200 text-red-700 font-semibold py-2 px-4 rounded-lg transition-colors duration-200">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
+                        </svg>
+                        重設名單
+                    </button>
+                </div>
+            </div>
+            
+            <!-- 貴賓列表容器 -->
+            <div id="visitor-list" class="space-y-4">
+                <!-- 動態生成的貴賓項目將在這裡插入 -->
+                <p id="loading-message" class="text-gray-500 text-center">載入中...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Firebase 腳本 -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, onSnapshot, query, serverTimestamp, getDocs, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // ==== Firebase 配置 ====
+        //
+        // 這些變數由 Canvas 自動提供，請勿更動。
+        //
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        //
+        // ========================
+
+        let app, db, auth, userId, visitorsData = [];
+        const visitorForm = document.getElementById('visitor-form');
+        const visitorList = document.getElementById('visitor-list');
+        const loadingMessage = document.getElementById('loading-message');
+        const downloadButton = document.getElementById('download-list');
+        const resetButton = document.getElementById('reset-list');
+
+        /**
+         * 轉換時間戳為本地時間字串
+         * @param {object} timestamp - Firestore Timestamp 物件
+         * @returns {string} 格式化的時間字串
+         */
+        function formatTimestamp(timestamp) {
+            if (!timestamp || !timestamp.toDate) {
+                return 'N/A';
+            }
+            const date = timestamp.toDate();
+            const year = date.getFullYear();
+            const month = (date.getMonth() + 1).toString().padStart(2, '0');
+            const day = date.getDate().toString().padStart(2, '0');
+            const hours = date.getHours().toString().padStart(2, '0');
+            const minutes = date.getMinutes().toString().padStart(2, '0');
+            return `${year}-${month}-${day} ${hours}:${minutes}`;
+        }
+
+        /**
+         * 渲染貴賓列表
+         * @param {Array<object>} visitors - 貴賓資料陣列
+         */
+        function renderVisitors(visitors) {
+            visitorList.innerHTML = '';
+            if (visitors.length === 0) {
+                visitorList.innerHTML = `<p class="text-gray-500 text-center">目前沒有貴賓</p>`;
+                return;
+            }
+
+            // 在客戶端進行排序
+            const sortedVisitors = visitors.sort((a, b) => {
+                // 將未介紹的貴賓排在前面
+                if (a.visited !== b.visited) {
+                    return a.visited ? 1 : -1;
+                }
+                // 如果介紹狀態相同，則根據時間戳由新到舊排序
+                if (a.timestamp && b.timestamp) {
+                    return b.timestamp.toDate().getTime() - a.timestamp.toDate().getTime();
+                }
+                return 0;
+            });
+
+            sortedVisitors.forEach(visitor => {
+                const visitorItem = document.createElement('div');
+                visitorItem.className = 'flex items-center justify-between p-4 bg-gray-100 rounded-lg shadow-sm transition-transform duration-200 hover:scale-[1.01]';
+                
+                // 貴賓資訊
+                const visitorInfo = `
+                    <div class="flex-1 min-w-0">
+                        <p class="text-lg font-semibold text-gray-800 truncate">${visitor.name}</p>
+                        <p class="text-sm text-gray-500 truncate">${visitor.unit} / ${visitor.title}</p>
+                        <p class="text-xs text-gray-400 mt-1">${formatTimestamp(visitor.timestamp)}</p>
+                    </div>
+                `;
+
+                // 狀態按鈕
+                const statusButton = `
+                    <button data-doc-id="${visitor.id}" data-visited="${visitor.visited}" class="toggle-status px-4 py-2 ml-4 rounded-full font-medium text-sm transition-colors duration-200
+                        ${visitor.visited ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">
+                        ${visitor.visited ? '已介紹' : '尚未介紹'}
+                    </button>
+                `;
+
+                visitorItem.innerHTML = visitorInfo + statusButton;
+                visitorList.appendChild(visitorItem);
+            });
+
+            // 重新綁定事件監聽器
+            document.querySelectorAll('.toggle-status').forEach(button => {
+                button.addEventListener('click', async (e) => {
+                    const docId = e.target.dataset.docId;
+                    const isVisited = e.target.dataset.visited === 'true';
+                    const docRef = doc(db, `artifacts/${appId}/public/data/visitors`, docId);
+                    try {
+                        await setDoc(docRef, { visited: !isVisited }, { merge: true });
+                    } catch (error) {
+                        console.error("Error updating status: ", error);
+                    }
+                });
+            });
+        }
+
+        /**
+         * 下載貴賓名單為 CSV 檔案
+         */
+        function downloadGuestList() {
+            if (visitorsData.length === 0) {
+                return;
+            }
+            
+            const header = ["單位", "職稱", "姓名", "抵達時間", "介紹狀態"];
+            const csv = visitorsData.map(v => 
+                `"${v.unit}","${v.title}","${v.name}","${formatTimestamp(v.timestamp)}","${v.visited ? '已介紹' : '尚未介紹'}"`
+            ).join('\n');
+            
+            const finalCsv = `${header.join(",")}\n${csv}`;
+            
+            // 加入 BOM 標記，解決 Excel 亂碼問題
+            const bom = '\uFEFF';
+            const blob = new Blob([bom + finalCsv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            const url = URL.createObjectURL(blob);
+            
+            // 取得今天的日期作為檔名
+            const today = new Date();
+            const dateStr = `${today.getFullYear()}-${(today.getMonth() + 1).toString().padStart(2, '0')}-${today.getDate().toString().padStart(2, '0')}`;
+            
+            link.setAttribute("href", url);
+            link.setAttribute("download", `貴賓名冊_${dateStr}.xls`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        /**
+         * 重設貴賓名單 (刪除所有資料)
+         */
+        async function resetGuestList() {
+            if (visitorsData.length === 0) {
+                return;
+            }
+
+            // 使用自定義的彈窗取代 window.confirm
+            const showCustomConfirm = () => {
+                const overlay = document.createElement('div');
+                overlay.className = 'fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50';
+                
+                const modal = document.createElement('div');
+                modal.className = 'bg-white p-6 rounded-lg shadow-xl max-w-sm w-full mx-4';
+                
+                const message = document.createElement('p');
+                message.className = 'text-lg font-semibold text-gray-800 mb-4 text-center';
+                message.textContent = "此操作將會重置今日名單，並永久刪除所有資料，請慎重選擇。";
+                
+                const buttonContainer = document.createElement('div');
+                buttonContainer.className = 'flex justify-center space-x-4';
+                
+                const confirmButton = document.createElement('button');
+                confirmButton.className = 'px-4 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition-colors';
+                confirmButton.textContent = "確定重置";
+                
+                const cancelButton = document.createElement('button');
+                cancelButton.className = 'px-4 py-2 bg-gray-200 text-gray-800 font-semibold rounded-lg hover:bg-gray-300 transition-colors';
+                cancelButton.textContent = "取消";
+                
+                return new Promise((resolve) => {
+                    confirmButton.onclick = () => {
+                        document.body.removeChild(overlay);
+                        resolve(true);
+                    };
+                    cancelButton.onclick = () => {
+                        document.body.removeChild(overlay);
+                        resolve(false);
+                    };
+                    
+                    buttonContainer.appendChild(confirmButton);
+                    buttonContainer.appendChild(cancelButton);
+                    modal.appendChild(message);
+                    modal.appendChild(buttonContainer);
+                    overlay.appendChild(modal);
+                    document.body.appendChild(overlay);
+                });
+            };
+
+            if (!(await showCustomConfirm())) {
+                return;
+            }
+
+            const visitorsCollection = collection(db, `artifacts/${appId}/public/data/visitors`);
+            const snapshot = await getDocs(visitorsCollection);
+            const batch = writeBatch(db);
+
+            snapshot.forEach((doc) => {
+                batch.delete(doc.ref);
+            });
+
+            try {
+                await batch.commit();
+                console.log("貴賓名單已成功重設。");
+            } catch (error) {
+                console.error("重設名單時發生錯誤: ", error);
+            }
+        }
+
+        // Firebase 初始化及認證
+        async function initializeFirebase() {
+            try {
+                app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+
+                // 認證
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                // 認證狀態改變監聽器
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        console.log("Firebase authenticated. User ID:", userId);
+                        loadingMessage.textContent = '載入貴賓資料...';
+                        startListeningForVisitors();
+                    } else {
+                        console.log("No user signed in.");
+                        loadingMessage.textContent = '未認證，無法載入資料。';
+                    }
+                });
+
+            } catch (error) {
+                console.error("Firebase initialization failed:", error);
+                loadingMessage.textContent = '初始化失敗，請檢查設定。';
+            }
+        }
+        
+        /**
+         * 監聽 Firestore 貴賓資料的變動
+         */
+        function startListeningForVisitors() {
+            const visitorsCollection = collection(db, `artifacts/${appId}/public/data/visitors`);
+            const q = query(visitorsCollection);
+            
+            onSnapshot(q, (snapshot) => {
+                visitorsData = []; // 更新全域變數
+                snapshot.forEach((doc) => {
+                    visitorsData.push({ id: doc.id, ...doc.data() });
+                });
+                renderVisitors(visitorsData);
+            }, (error) => {
+                console.error("Error listening to visitors data:", error);
+                visitorList.innerHTML = `<p class="text-red-500 text-center">資料載入錯誤。</p>`;
+            });
+        }
+
+        // 處理表單提交
+        visitorForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const unit = document.getElementById('unit').value.trim();
+            const title = document.getElementById('title').value.trim();
+            const name = document.getElementById('name').value.trim();
+
+            if (!unit || !title || !name) {
+                return;
+            }
+
+            try {
+                const visitorsCollection = collection(db, `artifacts/${appId}/public/data/visitors`);
+                await setDoc(doc(visitorsCollection), {
+                    unit: unit,
+                    title: title,
+                    name: name,
+                    timestamp: serverTimestamp(),
+                    visited: false
+                });
+                
+                // 清空表單
+                visitorForm.reset();
+            } catch (error) {
+                console.error("Error adding document: ", error);
+            }
+        });
+
+        // 為新按鈕添加事件監聽器
+        downloadButton.addEventListener('click', downloadGuestList);
+        resetButton.addEventListener('click', resetGuestList);
+
+        // 啟動應用程式
+        initializeFirebase();
+
+    </script>
+</body>
+</html>
