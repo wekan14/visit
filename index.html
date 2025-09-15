@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>貴賓登記系統 (Firebase版)</title>
+    <title>貴賓登記系統 (直接共編版)</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Inter Font -->
@@ -58,9 +58,6 @@
                     提交
                 </button>
             </form>
-            <div id="user-id-container" class="mt-4 text-sm text-gray-600 text-center">
-                <p>您的 ID: <span id="user-id" class="font-mono bg-gray-200 px-2 py-1 rounded-md text-xs">載入中...</span></p>
-            </div>
         </div>
 
         <!-- 右側：貴賓列表與功能按鈕 -->
@@ -106,7 +103,7 @@
     <!-- Firebase SDKs -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, addDoc, onSnapshot, query, deleteDoc, doc, writeBatch, getDocs, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
         // 設定 Firestore 偵錯模式
@@ -117,13 +114,12 @@
         const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
-        let db, auth, userId;
+        let db, auth;
         const form = document.getElementById('registration-form');
         const visitorList = document.getElementById('visitor-list');
         const emptyListMessage = document.getElementById('empty-list');
         const downloadButton = document.getElementById('download-list');
         const resetButton = document.getElementById('reset-list');
-        const userIdSpan = document.getElementById('user-id');
         const customModal = document.getElementById('custom-modal');
         const modalMessage = document.getElementById('modal-message');
         const modalButtons = document.getElementById('modal-buttons');
@@ -171,7 +167,7 @@
         }
 
         // 建立貴賓列表項目
-        function createVisitorItem(visitor, docId) {
+        function createVisitorItem(visitor) {
             const item = document.createElement('div');
             item.className = 'flex items-center justify-between p-4 bg-gray-50 rounded-lg shadow-sm';
             item.innerHTML = `
@@ -180,32 +176,6 @@
                     <p class="text-xs text-gray-500">${visitor.unit} - ${visitor.title}</p>
                 </div>
             `;
-
-            // 只有登錄者本人可以刪除自己的項目
-            if (visitor.userId === userId) {
-                const deleteBtn = document.createElement('button');
-                deleteBtn.className = 'text-red-500 hover:text-red-700 transition-colors duration-200 ml-2';
-                deleteBtn.innerHTML = `
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                        <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
-                    </svg>
-                `;
-                deleteBtn.onclick = async () => {
-                    showCustomModal("確定要刪除這筆登記嗎？", 'confirm', async (isConfirmed) => {
-                        if (isConfirmed) {
-                            try {
-                                await deleteDoc(doc(db, `artifacts/${appId}/public/data/guests`, docId));
-                                showToast("登記已刪除！");
-                            } catch (e) {
-                                console.error("刪除文件時發生錯誤：", e);
-                                showCustomModal("刪除失敗。請稍後再試。");
-                            }
-                        }
-                    });
-                };
-                item.appendChild(deleteBtn);
-            }
-            
             return item;
         }
 
@@ -222,45 +192,38 @@
                 auth = getAuth(app);
                 db = getFirestore(app);
 
-                // 使用 onAuthStateChanged 監聽器來處理認證狀態
-                onAuthStateChanged(auth, async (user) => {
-                    if (user) {
-                        // 使用者已登入，更新 UI
-                        userId = user.uid;
-                        userIdSpan.textContent = userId;
-                        
-                        // 監聽 Firestore 資料庫變化
-                        const guestsCollection = collection(db, `artifacts/${appId}/public/data/guests`);
-                        const q = query(guestsCollection);
-                        onSnapshot(q, (snapshot) => {
-                            const guests = [];
-                            snapshot.forEach((doc) => {
-                                guests.push({ id: doc.id, ...doc.data() });
-                            });
-                            
-                            // 渲染列表
-                            visitorList.innerHTML = '';
-                            if (guests.length === 0) {
-                                emptyListMessage.textContent = '目前還沒有貴賓登記。';
-                                visitorList.appendChild(emptyListMessage);
-                            } else {
-                                guests.forEach(guest => {
-                                    visitorList.appendChild(createVisitorItem(guest, guest.id));
-                                });
-                            }
-                        });
+                // 處理使用者認證
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+                
+                console.log('Firebase 認證成功，可以安全地存取資料庫了。');
+
+                // 在認證成功後，直接設定 Firestore 監聽器
+                const guestsCollection = collection(db, `artifacts/${appId}/public/data/guests`);
+                const q = query(guestsCollection);
+                onSnapshot(q, (snapshot) => {
+                    const guests = [];
+                    snapshot.forEach((doc) => {
+                        guests.push(doc.data());
+                    });
+                    
+                    // 渲染列表
+                    visitorList.innerHTML = '';
+                    if (guests.length === 0) {
+                        emptyListMessage.textContent = '目前還沒有貴賓登記。';
+                        visitorList.appendChild(emptyListMessage);
                     } else {
-                        // 使用者未登入，嘗試登入
-                        if (initialAuthToken) {
-                            await signInWithCustomToken(auth, initialAuthToken);
-                        } else {
-                            await signInAnonymously(auth);
-                        }
+                        guests.forEach(guest => {
+                            visitorList.appendChild(createVisitorItem(guest));
+                        });
                     }
                 });
             } catch (e) {
-                console.error("Firebase 初始化失敗：", e);
-                showCustomModal("應用程式初始化失敗。請檢查設定。");
+                console.error("應用程式初始化或資料庫連線失敗：", e);
+                showCustomModal("應用程式初始化失敗。請檢查設定或稍後再試。");
             }
         };
 
@@ -271,18 +234,11 @@
             const title = form.title.value;
             const name = form.name.value;
 
-            // 確保 userId 已經載入
-            if (!userId) {
-                showCustomModal("使用者ID尚未載入，請稍候再試。");
-                return;
-            }
-
             try {
-                const docRef = await addDoc(collection(db, `artifacts/${appId}/public/data/guests`), {
+                await addDoc(collection(db, `artifacts/${appId}/public/data/guests`), {
                     unit,
                     title,
                     name,
-                    userId,
                     timestamp: new Date()
                 });
                 showToast("登記成功！");
