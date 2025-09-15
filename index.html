@@ -79,25 +79,48 @@
     <!-- Firebase 腳本 -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, doc, setDoc, onSnapshot, query, serverTimestamp, getDocs, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // ==== Firebase 配置 ====
-        //
-        // 這些變數由 Canvas 自動提供，請勿更動。
-        //
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-        //
-        // ========================
+        // ==== 您專屬的 Firebase 專案配置 ====
+        const firebaseConfig = {
+          apiKey: "AIzaSyDUzC3l_uleVT_wHedmPyqqVUSlvhOmTqQ",
+          authDomain: "visit-9b675.firebaseapp.com",
+          projectId: "visit-9b675",
+          storageBucket: "visit-9b675.firebasestorage.app",
+          messagingSenderId: "391397238388",
+          appId: "1:391397238388:web:268b5ad0e6bbe3af2e5321",
+          measurementId: "G-FQ8G02N23V"
+        };
+        const appId = firebaseConfig.projectId;
+        const initialAuthToken = null;
+        // ==== 您的 Firebase 設定到此結束 ====
 
-        let app, db, auth, userId, visitorsData = [];
+        let app, db, auth, visitorsData = [];
         const visitorForm = document.getElementById('visitor-form');
         const visitorList = document.getElementById('visitor-list');
         const loadingMessage = document.getElementById('loading-message');
         const downloadButton = document.getElementById('download-list');
         const resetButton = document.getElementById('reset-list');
+        
+        // 自定義彈窗取代 window.alert 或 window.confirm
+        function showAlert(message) {
+            const overlay = document.createElement('div');
+            overlay.className = 'fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50';
+            const modal = document.createElement('div');
+            modal.className = 'bg-white p-6 rounded-lg shadow-xl max-w-xs w-full mx-4 text-center';
+            const msg = document.createElement('p');
+            msg.className = 'text-lg font-semibold text-gray-800 mb-4';
+            msg.textContent = message;
+            const okBtn = document.createElement('button');
+            okBtn.className = 'px-4 py-2 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 transition-colors';
+            okBtn.textContent = '確定';
+            okBtn.onclick = () => document.body.removeChild(overlay);
+            modal.appendChild(msg);
+            modal.appendChild(okBtn);
+            overlay.appendChild(modal);
+            document.body.appendChild(overlay);
+        }
 
         /**
          * 轉換時間戳為本地時間字串
@@ -176,6 +199,7 @@
                         await setDoc(docRef, { visited: !isVisited }, { merge: true });
                     } catch (error) {
                         console.error("Error updating status: ", error);
+                        showAlert("更新狀態時發生錯誤。");
                     }
                 });
             });
@@ -186,6 +210,7 @@
          */
         function downloadGuestList() {
             if (visitorsData.length === 0) {
+                showAlert("目前沒有貴賓資料可以下載。");
                 return;
             }
             
@@ -197,7 +222,7 @@
             const finalCsv = `${header.join(",")}\n${csv}`;
             
             // 加入 BOM 標記，解決 Excel 亂碼問題
-            const bom = '\uFEFF';
+            const bom = '\uFEff';
             const blob = new Blob([bom + finalCsv], { type: 'text/csv;charset=utf-8;' });
             const link = document.createElement("a");
             const url = URL.createObjectURL(blob);
@@ -219,6 +244,7 @@
          */
         async function resetGuestList() {
             if (visitorsData.length === 0) {
+                showAlert("目前沒有貴賓資料可以重設。");
                 return;
             }
 
@@ -278,31 +304,32 @@
 
             try {
                 await batch.commit();
-                console.log("貴賓名單已成功重設。");
+                showAlert("貴賓名單已成功重設。");
             } catch (error) {
                 console.error("重設名單時發生錯誤: ", error);
+                showAlert("重設名單時發生錯誤。");
             }
         }
 
         // Firebase 初始化及認證
         async function initializeFirebase() {
             try {
+                // 檢查是否已填入 Firebase 設定
+                if (!firebaseConfig.apiKey || firebaseConfig.apiKey.startsWith('YOUR_')) {
+                    throw new Error('請在程式碼中填入您自己的 Firebase 設定。');
+                }
+                
                 app = initializeApp(firebaseConfig);
                 auth = getAuth(app);
                 db = getFirestore(app);
 
-                // 認證
-                if (initialAuthToken) {
-                    await signInWithCustomToken(auth, initialAuthToken);
-                } else {
-                    await signInAnonymously(auth);
-                }
+                // 在 GitHub Pages 環境下，使用匿名登入
+                await signInAnonymously(auth);
 
                 // 認證狀態改變監聽器
                 onAuthStateChanged(auth, (user) => {
                     if (user) {
-                        userId = user.uid;
-                        console.log("Firebase authenticated. User ID:", userId);
+                        console.log("Firebase authenticated successfully.");
                         loadingMessage.textContent = '載入貴賓資料...';
                         startListeningForVisitors();
                     } else {
@@ -344,6 +371,7 @@
             const name = document.getElementById('name').value.trim();
 
             if (!unit || !title || !name) {
+                showAlert("請填寫所有欄位。");
                 return;
             }
 
@@ -361,6 +389,7 @@
                 visitorForm.reset();
             } catch (error) {
                 console.error("Error adding document: ", error);
+                showAlert("提交時發生錯誤。");
             }
         });
 
