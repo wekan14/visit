@@ -181,9 +181,10 @@
 
         // 頁面加載時初始化
         window.onload = async () => {
+            // 檢查 Firebase 設定是否存在
             if (!Object.keys(firebaseConfig).length) {
-                console.error("Firebase 配置資訊缺失。");
-                showCustomModal("應用程式初始化失敗。請檢查設定。");
+                console.error("Firebase 設定資訊缺失。");
+                showCustomModal("Firebase 設定資訊缺失，無法初始化應用程式。請聯繫支援團隊。");
                 return;
             }
 
