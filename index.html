@@ -11,34 +11,39 @@
     <h1 class="text-3xl sm:text-4xl font-extrabold text-gray-800 mb-6">貴賓登記系統</h1>
 
     <!-- 新增貴賓 -->
-    <form id="add-guest-form" class="space-y-4 mb-6">
-      <input type="text" id="guest-company" placeholder="公司/組織" required class="w-full border px-4 py-2 rounded"/>
-      <input type="text" id="guest-title" placeholder="職稱" required class="w-full border px-4 py-2 rounded"/>
-      <input type="text" id="guest-name" placeholder="姓名" required class="w-full border px-4 py-2 rounded"/>
-      <button type="submit" class="w-full py-2 bg-blue-600 text-white rounded hover:bg-blue-700">登記貴賓</button>
+    <form id="add-guest-form" class="space-y-2 mb-6">
+      <input type="text" id="guest-company" placeholder="公司/組織" required class="w-full border px-3 py-1 rounded text-sm"/>
+      <input type="text" id="guest-title" placeholder="職稱" required class="w-full border px-3 py-1 rounded text-sm"/>
+      <input type="text" id="guest-name" placeholder="姓名" required class="w-full border px-3 py-1 rounded text-sm"/>
+      <button type="submit" class="w-full py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm">登記貴賓</button>
     </form>
 
     <!-- 控制按鈕 -->
-    <div class="flex flex-col sm:flex-row justify-end sm:space-x-4 mb-6 space-y-2 sm:space-y-0">
-      <button id="download-csv" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 w-full sm:w-auto">下載清單 (CSV)</button>
-      <button id="reset-list" class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 w-full sm:w-auto">重置清單</button>
+    <div class="flex flex-col sm:flex-row justify-end sm:space-x-2 mb-6 space-y-1 sm:space-y-0">
+      <button id="download-csv" class="px-3 py-1.5 bg-green-600 text-white rounded hover:bg-green-700 w-full sm:w-auto text-sm">下載清單 (CSV)</button>
+      <button id="reset-list" class="px-3 py-1.5 bg-red-600 text-white rounded hover:bg-red-700 w-full sm:w-auto text-sm">重置清單</button>
     </div>
 
-    <!-- 貴賓清單 -->
+    <!-- 載入中 -->
     <div id="loading" class="text-center text-gray-500">載入貴賓清單...</div>
-    <div class="overflow-x-auto">
-      <table id="guest-table" class="hidden min-w-full border table-auto">
+
+    <!-- 卡片容器 -->
+    <div id="guest-list" class="space-y-2 hidden"></div>
+
+    <!-- 桌機表格（可選） -->
+    <div class="hidden sm:block overflow-x-auto">
+      <table id="guest-table" class="min-w-full border table-auto text-sm">
         <thead class="bg-gray-100">
           <tr>
-            <th class="px-4 py-2 text-left">公司/組織</th>
-            <th class="px-4 py-2 text-left">職稱</th>
-            <th class="px-4 py-2 text-left">姓名</th>
-            <th class="px-4 py-2 text-left">時間</th>
-            <th class="px-4 py-2 text-left">狀態</th>
-            <th class="px-4 py-2 text-left">操作</th>
+            <th class="px-2 py-1 text-left">公司/組織</th>
+            <th class="px-2 py-1 text-left">職稱</th>
+            <th class="px-2 py-1 text-left">姓名</th>
+            <th class="px-2 py-1 text-left">時間</th>
+            <th class="px-2 py-1 text-left">狀態</th>
+            <th class="px-2 py-1 text-left">操作</th>
           </tr>
         </thead>
-        <tbody id="guest-list"></tbody>
+        <tbody id="guest-table-body"></tbody>
       </table>
     </div>
   </div>
@@ -63,6 +68,7 @@
     const db = getFirestore(app);
 
     const guestListEl = document.getElementById("guest-list");
+    const guestTableBody = document.getElementById("guest-table-body");
     const guestTable = document.getElementById("guest-table");
     const loading = document.getElementById("loading");
     const form = document.getElementById("add-guest-form");
@@ -72,56 +78,79 @@
 
     signInAnonymously(auth).then(() => console.log("匿名登入成功")).catch(console.error);
 
-    // 即時監聽
     const q = query(collection(db, "guests"));
     onSnapshot(q, (snapshot) => {
       guestsData = [];
       snapshot.forEach(docSnap => guestsData.push({ id: docSnap.id, ...docSnap.data() }));
 
-      // 排序：未介紹先，依 timestamp 置頂；已介紹在下
       guestsData.sort((a,b)=>{
         if(a.introduced === b.introduced) return a.timestamp?.seconds - b.timestamp?.seconds;
         return a.introduced ? 1 : -1;
       });
 
-      renderTable();
+      renderGuests();
     });
 
-    function renderTable() {
+    function renderGuests() {
       guestListEl.innerHTML = "";
+      guestTableBody.innerHTML = "";
+
       guestsData.forEach(g => {
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td class="px-4 py-2">${g.company}</td>
-          <td class="px-4 py-2">${g.title}</td>
-          <td class="px-4 py-2">${g.name}</td>
-          <td class="px-4 py-2">${g.time || ""}</td>
-          <td class="px-4 py-2">
-            ${g.introduced ? `<span class="text-green-600 font-bold">已介紹</span>` :
-            `<button class="px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600" data-id="${g.id}">未介紹</button>`}
-          </td>
-          <td class="px-4 py-2">
-            <button class="text-red-600" data-id="${g.id}">刪除</button>
-          </td>
+        // 卡片式（手機直屏）
+        const card = document.createElement("div");
+        card.className = "bg-white p-2 rounded shadow sm:hidden space-y-0.5 text-xs";
+        card.innerHTML = `
+          <div><strong>公司/組織:</strong> ${g.company}</div>
+          <div><strong>職稱:</strong> ${g.title}</div>
+          <div><strong>姓名:</strong> ${g.name}</div>
+          <div><strong>時間:</strong> ${g.time}</div>
+          <div>
+            <strong>狀態:</strong> 
+            ${g.introduced ? `<span class="text-green-600 font-bold">已介紹</span>` : `<button class="px-1 py-0.5 bg-red-500 text-white rounded hover:bg-red-600" data-id="${g.id}">未介紹</button>`}
+          </div>
+          <div>
+            <button class="text-red-600 text-xs" data-id="${g.id}">刪除</button>
+          </div>
         `;
-        // 刪除
-        tr.querySelector('button.text-red-600')?.addEventListener("click", async () => {
+        card.querySelector('button.text-red-600')?.addEventListener("click", async () => {
           await deleteDoc(doc(db, "guests", g.id));
         });
-        // 標記已介紹
-        const markBtn = tr.querySelector('button[data-id]');
+        const markBtn = card.querySelector('button[data-id]');
         if(markBtn){
           markBtn.addEventListener("click", async ()=>{
             await updateDoc(doc(db,"guests",g.id),{introduced:true});
           });
         }
-        guestListEl.appendChild(tr);
+        guestListEl.appendChild(card);
+
+        // 桌機表格
+        const tr = document.createElement("tr");
+        tr.className = "hidden sm:table-row";
+        tr.innerHTML = `
+          <td class="px-2 py-1">${g.company}</td>
+          <td class="px-2 py-1">${g.title}</td>
+          <td class="px-2 py-1">${g.name}</td>
+          <td class="px-2 py-1">${g.time || ""}</td>
+          <td class="px-2 py-1">${g.introduced ? '<span class="text-green-600 font-bold">已介紹</span>' : `<button class="px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600" data-id="${g.id}">未介紹</button>`}</td>
+          <td class="px-2 py-1"><button class="text-red-600" data-id="${g.id}">刪除</button></td>
+        `;
+        tr.querySelector('button.text-red-600')?.addEventListener("click", async () => {
+          await deleteDoc(doc(db, "guests", g.id));
+        });
+        const markBtnTable = tr.querySelector('button[data-id]');
+        if(markBtnTable){
+          markBtnTable.addEventListener("click", async ()=>{
+            await updateDoc(doc(db,"guests",g.id),{introduced:true});
+          });
+        }
+        guestTableBody.appendChild(tr);
       });
+
       loading.classList.add("hidden");
+      guestListEl.classList.remove("hidden");
       guestTable.classList.remove("hidden");
     }
 
-    // 新增貴賓
     form.addEventListener("submit", async (e)=>{
       e.preventDefault();
       const company = document.getElementById("guest-company").value;
@@ -137,7 +166,6 @@
       form.reset();
     });
 
-    // 匯出 CSV
     document.getElementById("download-csv").addEventListener("click", ()=>{
       if(!guestsData.length){alert("目前沒有資料可以匯出"); return;}
       const header=["公司/組織","職稱","姓名","時間","狀態"];
@@ -152,7 +180,6 @@
       document.body.removeChild(link);
     });
 
-    // 重置
     resetBtn.addEventListener("click", async ()=>{
       if(!confirm("確定要刪除所有貴賓資料嗎？")) return;
       const qSnap=await getDocs(collection(db,"guests"));
