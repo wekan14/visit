@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>貴賓登記系統</title>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
@@ -98,7 +98,7 @@
       guestsData.forEach(g => {
         // 卡片式（手機直屏）
         const card = document.createElement("div");
-        card.className = "bg-white p-2 rounded shadow sm:hidden space-y-0.5 text-xs";
+        card.className = `p-2 rounded shadow sm:hidden space-y-0.5 text-xs ${g.introduced ? 'bg-gray-200' : 'bg-white'}`;
         card.innerHTML = `
           <div><strong>公司/組織:</strong> ${g.company}</div>
           <div><strong>職稱:</strong> ${g.title}</div>
@@ -191,7 +191,6 @@
       qSnap.forEach(d=>batch.delete(d.ref));
       await batch.commit();
     });
-
   </script>
 </body>
 </html>
