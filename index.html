@@ -30,7 +30,7 @@
     <!-- 卡片容器 -->
     <div id="guest-list" class="space-y-2 hidden"></div>
 
-    <!-- 桌機表格（可選） -->
+    <!-- 桌機表格 -->
     <div class="hidden sm:block overflow-x-auto">
       <table id="guest-table" class="min-w-full border table-auto text-sm">
         <thead class="bg-gray-100">
@@ -112,7 +112,9 @@
             <button class="text-red-600 text-xs" data-id="${g.id}">刪除</button>
           </div>
         `;
-        card.querySelector('button.text-red-600')?.addEventListener("click", async () => {
+        const delBtn = card.querySelector('button.text-red-600');
+        delBtn?.addEventListener("click", async () => {
+          if(!confirm(`確定要刪除 ${g.name} 的資料嗎？`)) return;
           await deleteDoc(doc(db, "guests", g.id));
         });
         const markBtn = card.querySelector('button[data-id]');
@@ -134,7 +136,9 @@
           <td class="px-2 py-1">${g.introduced ? '<span class="text-green-600 font-bold">已介紹</span>' : `<button class="px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600" data-id="${g.id}">未介紹</button>`}</td>
           <td class="px-2 py-1"><button class="text-red-600" data-id="${g.id}">刪除</button></td>
         `;
-        tr.querySelector('button.text-red-600')?.addEventListener("click", async () => {
+        const delBtnTable = tr.querySelector('button.text-red-600');
+        delBtnTable?.addEventListener("click", async () => {
+          if(!confirm(`確定要刪除 ${g.name} 的資料嗎？`)) return;
           await deleteDoc(doc(db, "guests", g.id));
         });
         const markBtnTable = tr.querySelector('button[data-id]');
@@ -187,6 +191,7 @@
       qSnap.forEach(d=>batch.delete(d.ref));
       await batch.commit();
     });
+
   </script>
 </body>
 </html>
