@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
   <title>貴賓登記系統</title>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
@@ -19,35 +19,35 @@
     </form>
 
     <!-- 控制按鈕 -->
-    <div class="flex justify-end space-x-4 mb-6">
-      <button id="download-csv" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">下載清單 (CSV)</button>
-      <button id="reset-list" class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">重置清單</button>
+    <div class="flex flex-col sm:flex-row justify-end sm:space-x-4 mb-6 space-y-2 sm:space-y-0">
+      <button id="download-csv" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 w-full sm:w-auto">下載清單 (CSV)</button>
+      <button id="reset-list" class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 w-full sm:w-auto">重置清單</button>
     </div>
 
     <!-- 貴賓清單 -->
     <div id="loading" class="text-center text-gray-500">載入貴賓清單...</div>
-    <table id="guest-table" class="hidden min-w-full border">
-      <thead class="bg-gray-100">
-        <tr>
-          <th class="px-4 py-2 text-left">公司/組織</th>
-          <th class="px-4 py-2 text-left">職稱</th>
-          <th class="px-4 py-2 text-left">姓名</th>
-          <th class="px-4 py-2 text-left">時間</th>
-          <th class="px-4 py-2 text-left">狀態</th>
-          <th class="px-4 py-2 text-left">操作</th>
-        </tr>
-      </thead>
-      <tbody id="guest-list"></tbody>
-    </table>
+    <div class="overflow-x-auto">
+      <table id="guest-table" class="hidden min-w-full border table-auto">
+        <thead class="bg-gray-100">
+          <tr>
+            <th class="px-4 py-2 text-left">公司/組織</th>
+            <th class="px-4 py-2 text-left">職稱</th>
+            <th class="px-4 py-2 text-left">姓名</th>
+            <th class="px-4 py-2 text-left">時間</th>
+            <th class="px-4 py-2 text-left">狀態</th>
+            <th class="px-4 py-2 text-left">操作</th>
+          </tr>
+        </thead>
+        <tbody id="guest-list"></tbody>
+      </table>
+    </div>
   </div>
 
-  <!-- Firebase & App -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
     import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
     import { getFirestore, collection, addDoc, onSnapshot, serverTimestamp, doc, deleteDoc, updateDoc, query, getDocs, writeBatch } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 
-    // 🔑 Firebase 配置
     const firebaseConfig = {
       apiKey: "AIzaSyBD_mfm8-WVLlOh2mTm5T4cIunQ_RgIB14",
       authDomain: "guest-91837.firebaseapp.com",
@@ -58,7 +58,6 @@
       measurementId: "G-SBDTZKPVJ2"
     };
 
-    // 初始化 Firebase
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     const db = getFirestore(app);
@@ -71,17 +70,26 @@
 
     let guestsData = [];
 
-    // 匿名登入
     signInAnonymously(auth).then(() => console.log("匿名登入成功")).catch(console.error);
 
-    // 即時監聽貴賓清單
+    // 即時監聽
     const q = query(collection(db, "guests"));
     onSnapshot(q, (snapshot) => {
       guestsData = [];
+      snapshot.forEach(docSnap => guestsData.push({ id: docSnap.id, ...docSnap.data() }));
+
+      // 排序：未介紹先，依 timestamp 置頂；已介紹在下
+      guestsData.sort((a,b)=>{
+        if(a.introduced === b.introduced) return a.timestamp?.seconds - b.timestamp?.seconds;
+        return a.introduced ? 1 : -1;
+      });
+
+      renderTable();
+    });
+
+    function renderTable() {
       guestListEl.innerHTML = "";
-      snapshot.forEach(docSnap => {
-        const g = docSnap.data();
-        guestsData.push({ id: docSnap.id, ...g });
+      guestsData.forEach(g => {
         const tr = document.createElement("tr");
         tr.innerHTML = `
           <td class="px-4 py-2">${g.company}</td>
@@ -90,31 +98,31 @@
           <td class="px-4 py-2">${g.time || ""}</td>
           <td class="px-4 py-2">
             ${g.introduced ? `<span class="text-green-600 font-bold">已介紹</span>` :
-            `<button class="px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600" data-id="${docSnap.id}">標記已介紹</button>`}
+            `<button class="px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600" data-id="${g.id}">未介紹</button>`}
           </td>
           <td class="px-4 py-2">
-            <button class="text-red-600" data-id="${docSnap.id}">刪除</button>
+            <button class="text-red-600" data-id="${g.id}">刪除</button>
           </td>
         `;
         // 刪除
-        tr.querySelector('button.text-red-600').addEventListener("click", async () => {
-          await deleteDoc(doc(db, "guests", docSnap.id));
+        tr.querySelector('button.text-red-600')?.addEventListener("click", async () => {
+          await deleteDoc(doc(db, "guests", g.id));
         });
         // 標記已介紹
         const markBtn = tr.querySelector('button[data-id]');
-        if(markBtn) {
-          markBtn.addEventListener("click", async () => {
-            await updateDoc(doc(db, "guests", docSnap.id), { introduced: true });
+        if(markBtn){
+          markBtn.addEventListener("click", async ()=>{
+            await updateDoc(doc(db,"guests",g.id),{introduced:true});
           });
         }
         guestListEl.appendChild(tr);
       });
       loading.classList.add("hidden");
       guestTable.classList.remove("hidden");
-    });
+    }
 
     // 新增貴賓
-    form.addEventListener("submit", async (e) => {
+    form.addEventListener("submit", async (e)=>{
       e.preventDefault();
       const company = document.getElementById("guest-company").value;
       const title = document.getElementById("guest-title").value;
@@ -126,35 +134,30 @@
         time: new Date().toLocaleString("zh-TW"),
         timestamp: serverTimestamp()
       });
-
       form.reset();
     });
 
-    // 匯出 CSV（UTF-8 BOM 避免 Excel 亂碼）
-    document.getElementById("download-csv").addEventListener("click", () => {
-      if (!guestsData.length) {
-        alert("目前沒有資料可以匯出");
-        return;
-      }
-      const header = ["公司/組織", "職稱", "姓名", "時間", "狀態"];
-      const rows = guestsData.map(g => [g.company, g.title, g.name, g.time, g.introduced ? "已介紹" : "未介紹"]);
-      let csvContent = "\uFEFF" + header.join(",") + "\n"
-        + rows.map(r => r.map(v => `"${v}"`).join(",")).join("\n");
-      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-      const link = document.createElement("a");
-      link.href = URL.createObjectURL(blob);
-      link.setAttribute("download", "guests.csv");
+    // 匯出 CSV
+    document.getElementById("download-csv").addEventListener("click", ()=>{
+      if(!guestsData.length){alert("目前沒有資料可以匯出"); return;}
+      const header=["公司/組織","職稱","姓名","時間","狀態"];
+      const rows=guestsData.map(g=>[g.company,g.title,g.name,g.time,g.introduced?"已介紹":"未介紹"]);
+      let csv="\uFEFF"+header.join(",")+"\n"+rows.map(r=>r.map(v=>`"${v}"`).join(",")).join("\n");
+      const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});
+      const link=document.createElement("a");
+      link.href=URL.createObjectURL(blob);
+      link.setAttribute("download","guests.csv");
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
     });
 
-    // 重置清單
-    resetBtn.addEventListener("click", async () => {
-      if (!confirm("確定要刪除所有貴賓資料嗎？")) return;
-      const qSnap = await getDocs(collection(db, "guests"));
-      const batch = writeBatch(db);
-      qSnap.forEach(d => batch.delete(d.ref));
+    // 重置
+    resetBtn.addEventListener("click", async ()=>{
+      if(!confirm("確定要刪除所有貴賓資料嗎？")) return;
+      const qSnap=await getDocs(collection(db,"guests"));
+      const batch=writeBatch(db);
+      qSnap.forEach(d=>batch.delete(d.ref));
       await batch.commit();
     });
   </script>
