@@ -185,12 +185,18 @@
     });
 
     resetBtn.addEventListener("click", async ()=>{
-      if(!confirm("確定要刪除所有貴賓資料嗎？")) return;
-      const qSnap=await getDocs(collection(db,"guests"));
-      const batch=writeBatch(db);
-      qSnap.forEach(d=>batch.delete(d.ref));
+      const pwd = prompt("請輸入密碼以重置所有貴賓資料：");
+      if(pwd !== "1234"){
+        alert("密碼錯誤，操作取消");
+        return;
+      }
+      const qSnap = await getDocs(collection(db,"guests"));
+      const batch = writeBatch(db);
+      qSnap.forEach(d => batch.delete(d.ref));
       await batch.commit();
+      alert("已成功清空所有資料！");
     });
+
   </script>
 </body>
 </html>
